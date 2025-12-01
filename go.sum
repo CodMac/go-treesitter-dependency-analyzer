@@ -1,0 +1,4 @@
+github.com/smacker/tree-sitter v0.0.0-20191122210546-284489a83bc5 h1:hh4MDetG/yLFqOdEM73BNevjCLkjxwgoOE5Qkow6aqA=
+github.com/smacker/tree-sitter v0.0.0-20191122210546-284489a83bc5/go.mod h1:gSpIRIaHgS90fiYrtqvT2CRffZitYaDOyJPJpTKUXiY=
+github.com/tree-sitter/tree-sitter-java v0.23.5 h1:J9YeMGMwXYlKSP3K4Us8CitC6hjtMjqpeOf2GGo6tig=
+github.com/tree-sitter/tree-sitter-java v0.23.5/go.mod h1:NRKlI8+EznxA7t1Yt3xtraPk1Wzqh3GAIC46wxvc320=
