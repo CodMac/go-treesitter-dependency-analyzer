@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"go-treesitter-dependency-analyzer/model"
+	"github.com/CodMac/go-treesitter-dependency-analyzer/model"
 )
 
 // JSONLWriter 负责将 DependencyRelation 结构体序列化为 JSON Lines 格式并写入输出流。

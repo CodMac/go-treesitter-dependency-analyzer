@@ -1,31 +1,26 @@
 package parser
 
 import (
+	"fmt"
+	"github.com/CodMac/go-treesitter-dependency-analyzer/model"
 	"os"
-	"time"
-	
-	sitter "github.com/smacker/tree-sitter"
-	"github.com/smacker/tree-sitter/parser"
-	
-	// 在实际项目中，需要引入所有依赖的语言库，并在其 init 函数中调用 RegisterLanguage
-	// _ "path/to/go-tree-sitter-bindings"
-	// _ "path/to/java-tree-sitter-bindings"
+
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// ParserInterface 定义了所有语言解析器的通用能力
-type ParserInterface interface {
-	// ParseFile 读取文件内容并使用相应的 Tree-sitter 语言库进行解析，返回 AST 根节点。
-	ParseFile(filePath string) (*sitter.Node, error)
+// Parser 定义了所有语言解析器的通用能力
+type Parser interface {
+	ParseFile(filePath string) (*sitter.Node, error) // ParseFile 读取文件内容并使用相应的 Tree-sitter 语言库进行解析，返回 AST 根节点。
 }
 
-// TreeSitterParser 是 ParserInterface 的具体实现
+// TreeSitterParser Parser的具体实现
 type TreeSitterParser struct {
-	Language Language // 当前解析器针对的语言
+	Language model.Language // 当前解析器针对的语言
 	tsParser *sitter.Parser
 }
 
 // NewParser 创建一个新的 TreeSitterParser 实例
-func NewParser(lang Language) (*TreeSitterParser, error) {
+func NewParser(lang model.Language) (*TreeSitterParser, error) {
 	tsLang, err := GetLanguage(lang)
 	if err != nil {
 		return nil, err
@@ -33,9 +28,6 @@ func NewParser(lang Language) (*TreeSitterParser, error) {
 
 	tsParser := sitter.NewParser()
 	tsParser.SetLanguage(tsLang)
-
-	// 设置超时，防止解析复杂文件时卡死
-	tsParser.SetTimeout(5 * time.Second) 
 
 	return &TreeSitterParser{
 		Language: lang,
@@ -52,8 +44,8 @@ func (p *TreeSitterParser) ParseFile(filePath string) (*sitter.Node, error) {
 	}
 
 	// 2. 解析文件内容
-	tree := p.tsParser.Parse(nil, content)
-	
+	tree := p.tsParser.Parse(content, nil)
+
 	if tree == nil {
 		return nil, fmt.Errorf("tree-sitter failed to parse file %s", filePath)
 	}
