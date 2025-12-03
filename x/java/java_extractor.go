@@ -102,7 +102,7 @@ func (e *Extractor) Extract(rootNode *sitter.Node, filePath string, gCtx *model.
 	return relations, nil
 }
 
-type RelationHandler func(q *sitter.Query, match *sitter.QueryMatch, sourceBytes []byte, filePath string, gc *model.GlobalContext) ([]*model.DependencyRelation, error)
+type RelationHandler func(q *sitter.Query, match *sitter.QueryMatch, sourceBytes *[]byte, filePath string, gc *model.GlobalContext) ([]*model.DependencyRelation, error)
 
 // handleDefinitionAndStructureRelations
 func (e *Extractor) handleDefinitionAndStructureRelations(q *sitter.Query, match *sitter.QueryMatch, sourceBytes *[]byte, filePath string, gc *model.GlobalContext) ([]*model.DependencyRelation, error) {
@@ -111,7 +111,7 @@ func (e *Extractor) handleDefinitionAndStructureRelations(q *sitter.Query, match
 	// 由于 QueryMatches.Next() 只返回 *QueryMatch，我们无法像以前那样轻松获取根节点。
 	// 简单起见，我们假设匹配中的第一个捕获是主节点。
 	sourceNode := match.NodesForCaptureIndex(0)[0]
-	sourceElement := determineSourceElement(sourceNode, sourceBytes, filePath, gc)
+	sourceElement := determineSourceElement(&sourceNode, sourceBytes, filePath, gc)
 	if sourceElement == nil {
 		sourceElement = &model.CodeElement{Kind: model.File, QualifiedName: filePath, Path: filePath}
 	}
@@ -147,7 +147,7 @@ func (e *Extractor) handleActionRelations(q *sitter.Query, match *sitter.QueryMa
 	relations := make([]*model.DependencyRelation, 0)
 
 	sourceNode := match.NodesForCaptureIndex(0)[0]
-	sourceElement := determineSourceElement(sourceNode, sourceBytes, filePath, gc)
+	sourceElement := determineSourceElement(&sourceNode, sourceBytes, filePath, gc)
 	if sourceElement == nil {
 		sourceElement = &model.CodeElement{Kind: model.File, QualifiedName: filePath, Path: filePath}
 	}
@@ -189,7 +189,7 @@ func (e *Extractor) processQuery(rootNode *sitter.Node, sourceBytes *[]byte, tsL
 			break
 		}
 
-		newRelations, err := handler(q, match, *sourceBytes, filePath, gc)
+		newRelations, err := handler(q, match, sourceBytes, filePath, gc)
 		if err != nil {
 			return err
 		}
@@ -211,7 +211,7 @@ func findCapturedNode(q *sitter.Query, match *sitter.QueryMatch, sourceBytes *[]
 	// FIX: 使用 NodesForCaptureIndex 获取节点
 	nodes := match.NodesForCaptureIndex(index)
 	if len(nodes) > 0 {
-		return nodes[0]
+		return &nodes[0]
 	}
 	return nil
 }
