@@ -6,6 +6,7 @@ import (
 	"os"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
+	_ "github.com/tree-sitter/tree-sitter-go/bindings/go"
 )
 
 // Parser 定义了所有语言解析器的通用能力
@@ -36,22 +37,22 @@ func NewParser(lang model.Language) (*TreeSitterParser, error) {
 }
 
 // ParseFile 实现了 ParserInterface 接口
-func (p *TreeSitterParser) ParseFile(filePath string) (*sitter.Node, error) {
+func (p *TreeSitterParser) ParseFile(filePath string) (*sitter.Node, *[]byte, error) {
 	// 1. 读取文件内容
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
+		return nil, nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
 
 	// 2. 解析文件内容
 	tree := p.tsParser.Parse(content, nil)
 
 	if tree == nil {
-		return nil, fmt.Errorf("tree-sitter failed to parse file %s", filePath)
+		return nil, nil, fmt.Errorf("tree-sitter failed to parse file %s", filePath)
 	}
 
 	// 3. 返回 AST 根节点
-	return tree.RootNode(), nil
+	return tree.RootNode(), &content, nil
 }
 
 // Close 释放 Tree-sitter 内部资源 (可选)

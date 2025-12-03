@@ -6,22 +6,10 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// DefinitionCollector 定义了第一阶段收集定义的能力。
-type DefinitionCollector interface {
-	// CollectDefinitions 仅负责遍历 AST，建立并返回该文件的 FileContext。
-	CollectDefinitions(rootNode *sitter.Node, filePath string) (*FileContext, error)
-}
-
-// ContextExtractor 定义了第二阶段提取关系的能力，需要全局上下文。
-type ContextExtractor interface {
-	// Extract 接收 AST 根节点、文件路径和全局上下文，返回依赖关系。
-	Extract(rootNode *sitter.Node, filePath string, globalContext *GlobalContext) ([]*model.DependencyRelation, error)
-}
-
-// Extractor 是一个组合接口，要求所有适配器同时实现这两阶段的能力。
+// Extractor 用于提取关系，需要全局上下文。
 type Extractor interface {
-	DefinitionCollector
-	ContextExtractor
+	// Extract 接收 AST 根节点、文件路径和全局上下文，返回依赖关系。
+	Extract(rootNode *sitter.Node, filePath string, gCtx *model.GlobalContext) ([]*model.DependencyRelation, error)
 }
 
 // LanguageExtractorFactory 是一个工厂函数类型，用于创建特定语言的 Extractor 实例。

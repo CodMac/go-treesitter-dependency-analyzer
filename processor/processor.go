@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/CodMac/go-treesitter-dependency-analyzer/collector"
 	"github.com/CodMac/go-treesitter-dependency-analyzer/extractor"
 	"github.com/CodMac/go-treesitter-dependency-analyzer/model"
 	"github.com/CodMac/go-treesitter-dependency-analyzer/parser"
@@ -34,7 +35,7 @@ func (fp *FileProcessor) ProcessFiles(ctx context.Context, filePaths []string) (
 	}
 
 	// GlobalContext 是所有并发阶段共享和更新的中央符号表。
-	globalContext := extractor.NewGlobalContext()
+	globalContext := model.NewGlobalContext()
 
 	// --- 阶段 1: 收集定义 (Definition Pass) ---
 	// 目的：并发解析所有文件，并填充 globalContext 中的所有符号定义。
@@ -66,10 +67,10 @@ func (fp *FileProcessor) ProcessFiles(ctx context.Context, filePaths []string) (
 }
 
 // workerFunc 定义了并发工作协程的签名。
-type workerFunc func(context.Context, *sync.WaitGroup, <-chan string, chan interface{}, chan error, *extractor.GlobalContext)
+type workerFunc func(context.Context, *sync.WaitGroup, <-chan string, chan interface{}, chan error, *model.GlobalContext)
 
 // runPhase 调度并发工作协程并等待结果。
-func (fp *FileProcessor) runPhase(ctx context.Context, filePaths []string, gc *extractor.GlobalContext, workerFn workerFunc) (interface{}, error) {
+func (fp *FileProcessor) runPhase(ctx context.Context, filePaths []string, gc *model.GlobalContext, workerFn workerFunc) (interface{}, error) {
 	filesChan := make(chan string, len(filePaths))
 	// 结果通道用于收集 workerFn 返回的任意结果 (interface{})
 	resultsChan := make(chan interface{}, len(filePaths))
@@ -109,7 +110,7 @@ func (fp *FileProcessor) runPhase(ctx context.Context, filePaths []string, gc *e
 }
 
 // workerPhase1 负责执行 AST 解析和定义收集。
-func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, filesChan <-chan string, resultsChan chan interface{}, errChan chan error, gc *extractor.GlobalContext) {
+func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, filesChan <-chan string, resultsChan chan interface{}, errChan chan error, gc *model.GlobalContext) {
 	defer wg.Done()
 
 	// 每个 worker 维护自己的 Parser 实例
@@ -124,7 +125,7 @@ func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, f
 	}
 	defer p.Close()
 
-	ext, extErr := extractor.GetExtractor(fp.Language)
+	cot, extErr := collector.GetCollector(fp.Language)
 	if extErr != nil {
 		// 致命错误：无法获取 Extractor
 		select {
@@ -133,25 +134,16 @@ func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, f
 		}
 		return
 	}
-	collector, ok := ext.(extractor.DefinitionCollector)
-	if !ok {
-		// 致命错误：Extractor 未实现 DefinitionCollector 接口
-		select {
-		case errChan <- fmt.Errorf("extractor for %s does not implement DefinitionCollector", fp.Language):
-		default:
-		}
-		return
-	}
 
 	for filePath := range filesChan {
-		rootNode, err := p.ParseFile(filePath)
+		rootNode, sourceBytes, err := p.ParseFile(filePath)
 		if err != nil {
 			fmt.Printf("[Warning P1] Skipping %s due to parsing error: %v\n", filePath, err)
 			continue
 		}
 
-		// 调用 Extractor 的定义收集方法
-		fileContext, err := collector.CollectDefinitions(rootNode, filePath)
+		// 调用 Collector 的定义收集方法
+		fileContext, err := cot.CollectDefinitions(rootNode, filePath, sourceBytes)
 		if err != nil {
 			fmt.Printf("[Warning P1] Failed to collect definitions in %s: %v\n", filePath, err)
 			continue
@@ -163,7 +155,7 @@ func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, f
 }
 
 // workerPhase2 负责执行 AST 解析和依赖关系提取。
-func (fp *FileProcessor) workerPhase2(ctx context.Context, wg *sync.WaitGroup, filesChan <-chan string, resultsChan chan interface{}, errChan chan error, gc *extractor.GlobalContext) {
+func (fp *FileProcessor) workerPhase2(ctx context.Context, wg *sync.WaitGroup, filesChan <-chan string, resultsChan chan interface{}, errChan chan error, gCtx *model.GlobalContext) {
 	defer wg.Done()
 
 	// 每个 worker 维护自己的 Parser 实例
@@ -185,24 +177,12 @@ func (fp *FileProcessor) workerPhase2(ctx context.Context, wg *sync.WaitGroup, f
 		}
 		return
 	}
-	contextExt, ok := ext.(extractor.ContextExtractor)
-	if !ok {
-		select {
-		case errChan <- fmt.Errorf("extractor for %s does not implement ContextExtractor", fp.Language):
-		default:
-		}
-		return
-	}
 
 	for filePath := range filesChan {
-		rootNode, err := p.ParseFile(filePath)
-		if err != nil {
-			// P1 阶段已经报告了致命的解析错误，这里跳过
-			continue
-		}
+		rootNode := gCtx.FileContexts[filePath].RootNode
 
 		// 调用 Extractor 的关系提取方法，传入完整的 GlobalContext
-		relations, err := contextExt.Extract(rootNode, filePath, gc)
+		relations, err := ext.Extract(rootNode, filePath, gCtx)
 		if err != nil {
 			fmt.Printf("[Warning P2] Failed to extract relations in %s: %v\n", filePath, err)
 			continue
