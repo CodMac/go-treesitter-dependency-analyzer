@@ -15,76 +15,71 @@ func NewJavaCollector() *Collector {
 // CollectDefinitions 实现了 extractor.DefinitionCollector 接口
 func (c *Collector) CollectDefinitions(rootNode *sitter.Node, filePath string, sourceBytes *[]byte) (*model.FileContext, error) {
 	fCtx := model.NewFileContext(filePath, rootNode, sourceBytes)
-	if err := c.collectDefinitionsLogic(fCtx); err != nil {
+
+	// 1. 独立处理 Package Name (作为 QN 的前缀)
+	c.collectPackageName(fCtx)
+
+	// 2. 递归收集定义
+	// 初始 QN Stack 只包含 PackageName（如果存在）
+	initialQN := ""
+	if fCtx.PackageName != "" {
+		initialQN = fCtx.PackageName
+	}
+
+	if err := c.collectDefinitionsRecursive(fCtx.RootNode, fCtx, initialQN); err != nil {
 		return nil, err
 	}
 
 	return fCtx, nil
 }
 
-func (c *Collector) collectDefinitionsLogic(fCtx *model.FileContext) error {
-	cursor := fCtx.RootNode.Walk()
-	defer cursor.Close()
-
-	qnStack := []string{}
-
-	// 1. 预处理 Package Name
-	if pkgNode := fCtx.RootNode.ChildByFieldName("package_declaration"); pkgNode != nil && pkgNode.ChildCount() > 1 {
+// collectPackageName 独立收集 Package Name
+func (c *Collector) collectPackageName(fCtx *model.FileContext) {
+	// Java package_declaration 是 program 的直接子节点
+	pkgNode := fCtx.RootNode.ChildByFieldName("package_declaration")
+	if pkgNode != nil {
+		// package_declaration 的第二个子节点 (索引 1) 通常是 scoped_identifier (包名)
 		if pkgNameNode := pkgNode.Child(1); pkgNameNode != nil {
 			fCtx.PackageName = getNodeContent(pkgNameNode, *fCtx.SourceBytes)
-			qnStack = append(qnStack, fCtx.PackageName)
+		}
+	}
+}
+
+// collectDefinitionsRecursive 使用递归来简化 QN 栈的管理。
+func (c *Collector) collectDefinitionsRecursive(node *sitter.Node, fCtx *model.FileContext, currentQNPrefix string) error {
+	// 检查当前节点是否是一个定义
+	if elem, kind := getDefinitionElement(node, fCtx.SourceBytes, fCtx.FilePath); elem != nil {
+		// 1. 构造 Qualified Name
+		parentQN := currentQNPrefix
+		elem.QualifiedName = model.BuildQualifiedName(parentQN, elem.Name)
+
+		// 2. 注册定义
+		fCtx.AddDefinition(elem, parentQN)
+
+		// 3. 更新 QN 前缀
+		// 对于 Class/Interface/Method，它们是容器，新的 QN 是其自身的 QualifiedName
+		if kind == model.Class || kind == model.Interface || kind == model.Method {
+			currentQNPrefix = elem.QualifiedName
 		}
 	}
 
-	// 2. 深度优先遍历 AST
+	// 递归遍历子节点
+	cursor := node.Walk()
+	defer cursor.Close()
+
 	if cursor.GotoFirstChild() {
 		for {
-			node := cursor.Node()
-
-			if elem, kind := getDefinitionElement(node, fCtx.SourceBytes, fCtx.FilePath); elem != nil {
-				parentQN := ""
-				if len(qnStack) > 0 {
-					parentQN = qnStack[len(qnStack)-1]
-				}
-
-				if kind != model.File && kind != model.Package {
-					elem.QualifiedName = model.BuildQualifiedName(parentQN, elem.Name)
-				} else {
-					elem.QualifiedName = elem.Name
-				}
-
-				fCtx.AddDefinition(elem, parentQN)
-
-				if kind == model.Class || kind == model.Interface || kind == model.Method {
-					qnStack = append(qnStack, elem.QualifiedName)
-				}
-
-				if cursor.GotoFirstChild() {
-					continue
-				}
+			// 递归调用，并传入当前 QN 前缀
+			if err := c.collectDefinitionsRecursive(cursor.Node(), fCtx, currentQNPrefix); err != nil {
+				return err
 			}
 
-			if cursor.GotoNextSibling() {
-				continue
-			}
-
-			for {
-				if _, kind := getDefinitionElement(cursor.Node(), fCtx.SourceBytes, fCtx.FilePath); kind == model.Class || kind == model.Interface || kind == model.Method {
-					if len(qnStack) > 0 {
-						qnStack = qnStack[:len(qnStack)-1]
-					}
-				}
-
-				if cursor.GotoParent() {
-					if cursor.GotoNextSibling() {
-						break
-					}
-				} else {
-					return nil
-				}
+			if !cursor.GotoNextSibling() {
+				break
 			}
 		}
 	}
+
 	return nil
 }
 

@@ -136,7 +136,7 @@ func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, f
 	}
 
 	for filePath := range filesChan {
-		rootNode, sourceBytes, err := p.ParseFile(filePath)
+		rootNode, sourceBytes, err := p.ParseFile(filePath, true)
 		if err != nil {
 			fmt.Printf("[Warning P1] Skipping %s due to parsing error: %v\n", filePath, err)
 			continue

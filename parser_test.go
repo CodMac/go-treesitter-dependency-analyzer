@@ -26,7 +26,7 @@ func TestTreeSitterParser_ParseFile(t *testing.T) {
 
 	// 2. 尝试解析一个 Java 文件
 	filePath := getTestFilePath("UserService.java")
-	rootNode, sourceBytes, err := javaParser.ParseFile(filePath)
+	rootNode, sourceBytes, err := javaParser.ParseFile(filePath, true)
 
 	if err != nil {
 		t.Fatalf("ParseFile failed for %s: %v", filePath, err)
