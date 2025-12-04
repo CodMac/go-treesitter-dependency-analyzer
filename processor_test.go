@@ -16,7 +16,7 @@ func TestFileProcessor_ProcessFiles_Java(t *testing.T) {
 	filePaths := []string{userPath, servicePath}
 
 	// 1. 初始化处理器
-	proc := processor.NewFileProcessor(model.LangJava, 2)
+	proc := processor.NewFileProcessor(model.LangJava, true, true, 4)
 
 	// 2. 运行两阶段处理
 	ctx := context.Background()

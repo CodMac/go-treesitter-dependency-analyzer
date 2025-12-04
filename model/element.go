@@ -15,11 +15,12 @@ const (
 	Namespace ElementKind = "NAMESPACE" // 对应命名空间 (C++, C#)
 
 	// 面向对象/复合类型
-	Class     ElementKind = "CLASS"     // 对应类 (Java, C++, Python, JS)
-	Interface ElementKind = "INTERFACE" // 对应接口 (Java, Go, TS)
-	Struct    ElementKind = "STRUCT"    // 对应结构体 (Go, C)
-	Enum      ElementKind = "ENUM"      // 对应枚举 (Java, C++, Rust)
-	Trait     ElementKind = "TRAIT"     // 对应特质/接口 (Rust, Scala)
+	Class       ElementKind = "CLASS"      // 对应类 (Java, C++, Python, JS)
+	Interface   ElementKind = "INTERFACE"  // 对应接口 (Java, Go, TS)
+	Struct      ElementKind = "STRUCT"     // 对应结构体 (Go, C)
+	Enum        ElementKind = "ENUM"       // 对应枚举 (Java, C++, Rust)
+	Trait       ElementKind = "TRAIT"      // 对应特质/接口 (Rust, Scala)
+	Annotationn ElementKind = "ANNOTATION" //  对应注解 (Java, Python)
 
 	// 可执行体
 	Function ElementKind = "FUNCTION" // 对应独立函数 (C, Go, JS)
@@ -31,6 +32,9 @@ const (
 	Constant ElementKind = "CONSTANT" // 对应常量
 	Field    ElementKind = "FIELD"    // 对应类/结构体/枚举的成员或字段 (Java, Go, C++)
 	Type     ElementKind = "TYPE"     // 对应自定义类型别名或基本类型引用
+
+	// 未知类型
+	Unknown ElementKind = "UNKNOWN"
 )
 
 // Location 描述了代码元素或依赖关系在源码中的位置

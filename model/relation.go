@@ -28,4 +28,5 @@ type DependencyRelation struct {
 	Source   *CodeElement   `json:"Source"`   // Source: 关系的发起方（调用者、导入者等）
 	Target   *CodeElement   `json:"Target"`   // Target: 关系的指向方（被调用函数、被导入包等）
 	Location *Location      `json:"Location"` // Location: 关系发生的代码位置。 对于 Call 关系，这是调用表达式的位置。 对于 Import 关系，这是 import 语句的位置。
+	Details  string         `json:"Details"`
 }

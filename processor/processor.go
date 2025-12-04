@@ -13,18 +13,23 @@ import (
 
 // FileProcessor 负责管理文件解析和依赖提取的并发调度。
 type FileProcessor struct {
-	Language model.Language
-	Workers  int // 并发协程数量
+	Language    model.Language
+	OutputAST   bool
+	FormatAST   bool
+	Concurrency int
 }
 
-// NewFileProcessor 创建一个新的处理器实例。
-func NewFileProcessor(lang model.Language, workers int) *FileProcessor {
-	if workers <= 0 {
-		workers = 4 // 默认并发数
+// NewFileProcessor 创建一个新的处理器实例。 接收一个包含所有配置的 ProcessorConfig 结构体。
+func NewFileProcessor(lang model.Language, outputAST bool, formatAST bool, concurrency int) *FileProcessor {
+	// 确保并发数有效，并使用 Concurrency 字段
+	if concurrency <= 0 {
+		concurrency = 4 // 默认并发数
 	}
 	return &FileProcessor{
-		Language: lang,
-		Workers:  workers,
+		Language:    lang,
+		OutputAST:   outputAST,
+		FormatAST:   formatAST,
+		Concurrency: concurrency,
 	}
 }
 
@@ -38,14 +43,14 @@ func (fp *FileProcessor) ProcessFiles(ctx context.Context, filePaths []string) (
 	globalContext := model.NewGlobalContext()
 
 	// --- 阶段 1: 收集定义 (Definition Pass) ---
-	// 目的：并发解析所有文件，并填充 globalContext 中的所有符号定义。
-	fmt.Printf("Phase 1: Collecting definitions from %d files with %d workers...\n", len(filePaths), fp.Workers)
+	// 使用 fp.Concurrency 访问嵌入的配置
+	fmt.Printf("Phase 1: Collecting definitions from %d files with %d workers...\n", len(filePaths), fp.Concurrency)
 	if _, err := fp.runPhase(ctx, filePaths, globalContext, fp.workerPhase1); err != nil {
 		return nil, fmt.Errorf("phase 1 (definition collection) failed: %w", err)
 	}
 
 	// --- 阶段 2: 提取关系 (Relation Pass) ---
-	// 目的：利用 Phase 1 建立的 globalContext，并发提取依赖关系。
+	// 使用 fp.Concurrency 访问嵌入的配置
 	fmt.Printf("Phase 2: Extracting dependencies...\n")
 	results, err := fp.runPhase(ctx, filePaths, globalContext, fp.workerPhase2)
 	if err != nil {
@@ -74,11 +79,12 @@ func (fp *FileProcessor) runPhase(ctx context.Context, filePaths []string, gc *m
 	filesChan := make(chan string, len(filePaths))
 	// 结果通道用于收集 workerFn 返回的任意结果 (interface{})
 	resultsChan := make(chan interface{}, len(filePaths))
-	errChan := make(chan error, fp.Workers)
+	// 使用 fp.Concurrency
+	errChan := make(chan error, fp.Concurrency)
 	var wg sync.WaitGroup
 
 	// 启动 worker 协程
-	for i := 0; i < fp.Workers; i++ {
+	for i := 0; i < fp.Concurrency; i++ {
 		wg.Add(1)
 		go workerFn(ctx, &wg, filesChan, resultsChan, errChan, gc)
 	}
@@ -113,7 +119,7 @@ func (fp *FileProcessor) runPhase(ctx context.Context, filePaths []string, gc *m
 func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, filesChan <-chan string, resultsChan chan interface{}, errChan chan error, gc *model.GlobalContext) {
 	defer wg.Done()
 
-	// 每个 worker 维护自己的 Parser 实例
+	// 使用 fp.Language 访问嵌入的配置
 	p, pErr := parser.NewParser(fp.Language)
 	if pErr != nil {
 		// 致命错误：无法创建解析器，退出所有 worker
@@ -125,18 +131,20 @@ func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, f
 	}
 	defer p.Close()
 
+	// 使用 fp.Language
 	cot, extErr := collector.GetCollector(fp.Language)
 	if extErr != nil {
-		// 致命错误：无法获取 Extractor
+		// 致命错误：无法获取 Collector
 		select {
-		case errChan <- fmt.Errorf("failed to get extractor for %s: %w", fp.Language, extErr):
+		case errChan <- fmt.Errorf("failed to get collector for %s: %w", fp.Language, extErr):
 		default:
 		}
 		return
 	}
 
 	for filePath := range filesChan {
-		rootNode, sourceBytes, err := p.ParseFile(filePath, true)
+		// 调用 p.ParseFile 时传入 AST 输出配置
+		rootNode, sourceBytes, err := p.ParseFile(filePath, fp.OutputAST, fp.FormatAST)
 		if err != nil {
 			fmt.Printf("[Warning P1] Skipping %s due to parsing error: %v\n", filePath, err)
 			continue
@@ -158,7 +166,7 @@ func (fp *FileProcessor) workerPhase1(ctx context.Context, wg *sync.WaitGroup, f
 func (fp *FileProcessor) workerPhase2(ctx context.Context, wg *sync.WaitGroup, filesChan <-chan string, resultsChan chan interface{}, errChan chan error, gCtx *model.GlobalContext) {
 	defer wg.Done()
 
-	// 每个 worker 维护自己的 Parser 实例
+	// 使用 fp.Language
 	p, pErr := parser.NewParser(fp.Language)
 	if pErr != nil {
 		select {
@@ -169,6 +177,7 @@ func (fp *FileProcessor) workerPhase2(ctx context.Context, wg *sync.WaitGroup, f
 	}
 	defer p.Close()
 
+	// 使用 fp.Language
 	ext, extErr := extractor.GetExtractor(fp.Language)
 	if extErr != nil {
 		select {
@@ -179,6 +188,11 @@ func (fp *FileProcessor) workerPhase2(ctx context.Context, wg *sync.WaitGroup, f
 	}
 
 	for filePath := range filesChan {
+		// Phase 2 不需要重新解析文件或输出 AST，直接从 GlobalContext 获取 AST 根节点
+		if gCtx.FileContexts[filePath] == nil {
+			fmt.Printf("[Warning P2] Skipping %s, file context not found.\n", filePath)
+			continue
+		}
 		rootNode := gCtx.FileContexts[filePath].RootNode
 
 		// 调用 Extractor 的关系提取方法，传入完整的 GlobalContext
