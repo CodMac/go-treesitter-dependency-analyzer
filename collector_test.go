@@ -2,42 +2,30 @@ package main_test
 
 import (
 	"fmt"
-	tree_sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
-	"os"
+	"github.com/CodMac/go-treesitter-dependency-analyzer/parser"
 	"testing"
 
 	"github.com/CodMac/go-treesitter-dependency-analyzer/model"
 	"github.com/CodMac/go-treesitter-dependency-analyzer/x/java"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
 	// 导入所有语言绑定，确保 GetLanguage 可以找到
 	_ "github.com/tree-sitter/tree-sitter-go/bindings/go"
 )
 
-// parseJava 是一个模拟函数，用于将 Java 源码解析成 AST 根节点
-// 在实际环境中，如果 javaLanguage 未初始化，测试会跳过。
-func parseJava(t *testing.T, sourceCode []byte) *sitter.Node {
-	parser := sitter.NewParser()
-	parser.SetLanguage(sitter.NewLanguage(tree_sitter_java.Language()))
-	tree := parser.Parse(sourceCode, nil)
-
-	return tree.RootNode()
-}
-
 func TestJavaCollector_CollectDefinitions(t *testing.T) {
-	filePath := getTestFilePath("MyClass.java")
-	sourceBytes, err := os.ReadFile(filePath)
+	javaParser, err := parser.NewParser(model.LangJava)
 	if err != nil {
-		t.Fatalf("TestJavaCollector_CollectDefinitions err: %v", fmt.Errorf("failed to read file %s: %w", filePath, err))
+		t.Fatalf("Failed to create Java parser: %v", err)
 	}
 
-	rootNode := parseJava(t, sourceBytes)
-	if rootNode == nil {
-		return
+	filePath := getTestFilePath("MyClass.java")
+	rootNode, sourceBytes, err := javaParser.ParseFile(filePath, true, false)
+	if err != nil {
+		t.Fatalf("Failed to parser file: %v", err)
 	}
 
 	collector := java.NewJavaCollector()
-	fCtx, err := collector.CollectDefinitions(rootNode, filePath, &sourceBytes)
+	fCtx, err := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
 	if err != nil {
 		t.Fatalf("CollectDefinitions failed: %v", err)
 	}
