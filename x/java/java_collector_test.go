@@ -1134,6 +1134,79 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 	})
 }
 
+// 验证 Record 定义解析
+// 验证 Record Components (Field + Method)
+// 验证显式定义的方法
+func TestJavaCollector_ModernRecord(t *testing.T) {
+	// 1. 获取测试文件路径
+	targetFile := getTestFilePath(filepath.Join("com", "example", "shop", "ModernOrderProcessor.java"))
+
+	// 2. 执行 Phase 1: 符号收集
+	// 假设 runPhase1Collection 是你封装的初始化 GlobalContext 并调用 Collector.Collect 的方法
+	gCtx := runPhase1Collection(t, []string{targetFile})
+
+	fCtx, ok := gCtx.FileContexts[targetFile]
+	assert.True(t, ok, "FileContext should exist for ModernOrderProcessor.java")
+
+	// 3. 验证 Record 定义解析
+	t.Run("Verify Record Declaration", func(t *testing.T) {
+		// 验证 QualifiedName 是否正确映射
+		orderDefs, ok := fCtx.DefinitionsBySN["Order"]
+		assert.True(t, ok, "Should define 'Order' record")
+
+		orderElem := orderDefs[0].Element
+		assert.Equal(t, model.Class, orderElem.Kind, "Record should be treated as a specialized Class")
+		assert.Equal(t, "com.example.shop.Order", orderElem.QualifiedName)
+	})
+
+	// 4. 验证 Record Components (Field + Method)
+	t.Run("Verify Record Components and Implicit Accessors", func(t *testing.T) {
+		// 在 Java Record 中，'price' 既是 Field，也会生成隐式的 'price()' Method
+		priceDefs := fCtx.DefinitionsBySN["price"]
+		assert.GreaterOrEqual(t, len(priceDefs), 2, "Should have at least 2 definitions for 'price' (field and accessor)")
+
+		hasField := false
+		hasMethod := false
+		for _, d := range priceDefs {
+			if d.Element.Kind == model.Field {
+				hasField = true
+				assert.Equal(t, "com.example.shop.Order.price", d.Element.QualifiedName)
+			}
+			if d.Element.Kind == model.Method {
+				hasMethod = true
+				assert.Equal(t, "com.example.shop.Order.price", d.Element.QualifiedName)
+			}
+		}
+		assert.True(t, hasField, "Record component 'price' should be collected as Field")
+		assert.True(t, hasMethod, "Record component 'price' should be collected as implicit Method")
+	})
+
+	// 5. 验证紧凑构造函数 (Compact Constructor)
+	t.Run("Verify Compact Constructor", func(t *testing.T) {
+		// 紧凑构造函数在 AST 中是 compact_constructor_declaration，应识别为构造函数
+		constructorDefs := fCtx.DefinitionsBySN["Order"]
+		foundConstructor := false
+		for _, d := range constructorDefs {
+			// 排除类定义本身，查找同名的 Method/Constructor
+			if d.Element.Kind == model.Method && d.Element.QualifiedName == "com.example.shop.Order.Order" {
+				foundConstructor = true
+			}
+		}
+		assert.True(t, foundConstructor, "Should collect compact constructor as a Method/Constructor")
+	})
+
+	// 6. 验证显式定义的方法
+	t.Run("Verify Explicit Methods", func(t *testing.T) {
+		methods := []string{"process", "log"}
+		for _, mName := range methods {
+			defs, ok := fCtx.DefinitionsBySN[mName]
+			assert.True(t, ok, "Method %s should be defined", mName)
+			assert.Equal(t, model.Method, defs[0].Element.Kind)
+			assert.Equal(t, "com.example.shop.Order."+mName, defs[0].Element.QualifiedName)
+		}
+	})
+}
+
 // 辅助函数
 func contains(slice []string, item string) bool {
 	for _, s := range slice {

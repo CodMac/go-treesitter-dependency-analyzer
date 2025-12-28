@@ -106,6 +106,19 @@ func (c *Collector) collectDefinitionsRecursive(node *sitter.Node, fCtx *model.F
 			elem.QualifiedName = model.BuildQualifiedName(parentQN, elem.Name)
 			fCtx.AddDefinition(elem, parentQN)
 
+			// --- 核心优化：处理 Record 组件的隐式 Accessor 方法 ---
+			if node.Kind() == "formal_parameter" {
+				if parent := node.Parent(); parent != nil && parent.Kind() == "formal_parameters" {
+					if grand := parent.Parent(); grand != nil && grand.Kind() == "record_declaration" {
+						methodElem := *elem
+						methodElem.Kind = model.Method
+						methodElem.Signature = elem.Name + "()"
+						fCtx.AddDefinition(&methodElem, parentQN)
+					}
+				}
+			}
+
+			// 只有 Container 类型或 Method 需要作为后续子节点的 QN 前缀
 			if c.isContainerKind(kind) || kind == model.Method {
 				currentQNPrefix = elem.QualifiedName
 			}
@@ -139,11 +152,11 @@ func (c *Collector) getDefinitionElement(node *sitter.Node, sourceBytes *[]byte,
 }
 
 func (c *Collector) extractElementBasic(node *sitter.Node, sourceBytes *[]byte, filePath string, currentQNPrefix string) (*model.CodeElement, model.ElementKind) {
+	kindStr := node.Kind()
 	var kind model.ElementKind
 	var nameNode *sitter.Node
 
-	nodeKind := node.Kind()
-	switch nodeKind {
+	switch kindStr {
 	case "class_declaration", "record_declaration":
 		kind = model.Class
 	case "interface_declaration":
@@ -152,22 +165,17 @@ func (c *Collector) extractElementBasic(node *sitter.Node, sourceBytes *[]byte, 
 		kind = model.Enum
 	case "annotation_type_declaration":
 		kind = model.KAnnotation
-	case "method_declaration", "annotation_type_element_declaration":
+	case "method_declaration", "constructor_declaration", "compact_constructor_declaration", "annotation_type_element_declaration":
 		kind = model.Method
-	case "constructor_declaration":
-		kind = model.Method
-	case "enum_constant":
-		kind = model.EnumConstant
 	case "field_declaration":
 		kind = model.Field
-	case "formal_parameter": // 关键修复：Record 的组件在 AST 中是 formal_parameter
-		// 只有当父节点是 formal_parameters 且祖父节点是 record_declaration 时才视为 Field
-		if parent := node.Parent(); parent != nil && parent.Kind() == "formal_parameters" {
-			if grand := parent.Parent(); grand != nil && grand.Kind() == "record_declaration" {
-				kind = model.Field
-			} else {
-				return nil, "" // 普通方法参数不作为定义采集
-			}
+	case "enum_constant":
+		kind = model.EnumConstant
+	case "formal_parameter":
+		// Record 组件判定
+		if node.Parent() != nil && node.Parent().Parent() != nil &&
+			node.Parent().Parent().Kind() == "record_declaration" {
+			kind = model.Field
 		} else {
 			return nil, ""
 		}
@@ -175,20 +183,20 @@ func (c *Collector) extractElementBasic(node *sitter.Node, sourceBytes *[]byte, 
 		return nil, ""
 	}
 
-	// 统一名称提取逻辑
-	if nodeKind == "field_declaration" {
+	// 针对不同类型的节点提取名称
+	if kindStr == "field_declaration" {
 		if vNode := c.findNamedChildOfType(node, "variable_declarator"); vNode != nil {
 			nameNode = vNode.ChildByFieldName("name")
 		}
 	} else {
-		// record_declaration, interface_declaration, formal_parameter 的名称都在 "name" 字段
 		nameNode = node.ChildByFieldName("name")
 	}
 
 	name := ""
 	if nameNode != nil {
 		name = c.getNodeContent(nameNode, *sourceBytes)
-	} else if nodeKind == "constructor_declaration" && currentQNPrefix != "" {
+	} else if (kindStr == "constructor_declaration" || kindStr == "compact_constructor_declaration") && currentQNPrefix != "" {
+		// 构造函数名自动补全
 		parts := strings.Split(currentQNPrefix, ".")
 		name = parts[len(parts)-1]
 	}
@@ -233,14 +241,11 @@ func (c *Collector) fillElementExtra(node *sitter.Node, elem *model.CodeElement,
 
 func (c *Collector) extractClassSignature(node *sitter.Node, name string, modifiers []string, sourceBytes []byte) string {
 	var sb strings.Builder
-
-	// 1. 修饰符
 	if len(modifiers) > 0 {
 		sb.WriteString(strings.Join(modifiers, " "))
 		sb.WriteString(" ")
 	}
 
-	// 2. 关键字
 	switch node.Kind() {
 	case "class_declaration":
 		sb.WriteString("class ")
@@ -254,76 +259,78 @@ func (c *Collector) extractClassSignature(node *sitter.Node, name string, modifi
 		sb.WriteString("@interface ")
 	}
 
-	// 3. 名称
 	sb.WriteString(name)
-
-	// 4. 泛型参数
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
 		sb.WriteString(c.getNodeContent(tpNode, sourceBytes))
 	}
-
-	// 5. Record 参数列表 (formal_parameters 节点)
 	if node.Kind() == "record_declaration" {
 		if pNode := node.ChildByFieldName("parameters"); pNode != nil {
 			sb.WriteString(c.getNodeContent(pNode, sourceBytes))
 		}
 	}
-
-	// 6. Permits 列表 (根据你的 AST，字段名是 "permits")
-	if pNode := node.ChildByFieldName("permits"); pNode != nil {
-		sb.WriteString(" ")
-		sb.WriteString(c.getNodeContent(pNode, sourceBytes))
-	}
-
 	return strings.TrimSpace(sb.String())
 }
 
 func (c *Collector) extractMethodSignature(node *sitter.Node, sourceBytes []byte, modifiers []string) string {
 	var sb strings.Builder
-
 	if len(modifiers) > 0 {
 		sb.WriteString(strings.Join(modifiers, " "))
 		sb.WriteString(" ")
 	}
 
+	// 1. 处理紧凑构造函数
+	if node.Kind() == "compact_constructor_declaration" {
+		if nNode := node.ChildByFieldName("name"); nNode != nil {
+			sb.WriteString(c.getNodeContent(nNode, sourceBytes))
+		}
+		sb.WriteString(" {compact}")
+		return strings.TrimSpace(sb.String())
+	}
+
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
-		sb.WriteString(c.getNodeContent(tpNode, sourceBytes))
-		sb.WriteString(" ")
+		sb.WriteString(c.getNodeContent(tpNode, sourceBytes) + " ")
 	}
-
 	if tNode := node.ChildByFieldName("type"); tNode != nil {
-		sb.WriteString(c.getNodeContent(tNode, sourceBytes))
-		sb.WriteString(" ")
+		sb.WriteString(c.getNodeContent(tNode, sourceBytes) + " ")
 	}
-
 	if nNode := node.ChildByFieldName("name"); nNode != nil {
 		sb.WriteString(c.getNodeContent(nNode, sourceBytes))
 	}
 
-	pNode := node.ChildByFieldName("parameters")
-	if pNode != nil {
+	// 2. 核心修复：处理参数括号
+	if pNode := node.ChildByFieldName("parameters"); pNode != nil {
 		sb.WriteString(c.getNodeContent(pNode, sourceBytes))
-	} else if node.Kind() != "constructor_declaration" {
-		sb.WriteString("()")
+	} else {
+		// 只有以下情况不自动补全 ():
+		// - 构造函数 (在某些 AST 转换中可能暂时没有 parameters 节点)
+		// - 注解属性定义 (已经在 signature 中包含了 name)
+		// 但是，测试案例期待 "level()"，所以我们需要为注解属性显式加上 ()
+		if node.Kind() == "annotation_type_element_declaration" {
+			sb.WriteString("()")
+		} else if node.Kind() != "constructor_declaration" {
+			sb.WriteString("()")
+		}
 	}
 
 	return strings.TrimSpace(sb.String())
 }
 
-func (c *Collector) fillEnumConstantExtra(node *sitter.Node, extra *model.ElementExtra, sourceBytes *[]byte) {
-	argListNode := node.ChildByFieldName("arguments")
-	if argListNode == nil {
-		return
+func (c *Collector) fillFieldExtra(node *sitter.Node, extra *model.ElementExtra, modifiers []string, sourceBytes *[]byte) {
+	fe := &model.FieldExtra{}
+	if tNode := node.ChildByFieldName("type"); tNode != nil {
+		fe.Type = c.getNodeContent(tNode, *sourceBytes)
 	}
-
-	ece := &model.EnumConstantExtra{Arguments: make([]string, 0)}
-	for i := 0; i < int(argListNode.ChildCount()); i++ {
-		child := argListNode.Child(uint(i))
-		if child.IsNamed() {
-			ece.Arguments = append(ece.Arguments, c.getNodeContent(child, *sourceBytes))
+	if node.Kind() == "formal_parameter" {
+		fe.IsConstant = true
+	} else {
+		for _, m := range modifiers {
+			if m == "final" {
+				fe.IsConstant = true
+				break
+			}
 		}
 	}
-	extra.EnumConstantExtra = ece
+	extra.FieldExtra = fe
 }
 
 func (c *Collector) fillClassExtra(node *sitter.Node, extra *model.ElementExtra, modifiers []string, sourceBytes *[]byte) {
@@ -336,7 +343,6 @@ func (c *Collector) fillClassExtra(node *sitter.Node, extra *model.ElementExtra,
 			ce.IsFinal = true
 		}
 	}
-
 	if scNode := node.ChildByFieldName("superclass"); scNode != nil {
 		for i := 0; i < int(scNode.ChildCount()); i++ {
 			child := scNode.Child(uint(i))
@@ -346,7 +352,6 @@ func (c *Collector) fillClassExtra(node *sitter.Node, extra *model.ElementExtra,
 			}
 		}
 	}
-
 	var iNode *sitter.Node
 	if n := node.ChildByFieldName("interfaces"); n != nil {
 		iNode = n
@@ -358,7 +363,6 @@ func (c *Collector) fillClassExtra(node *sitter.Node, extra *model.ElementExtra,
 			}
 		}
 	}
-
 	if iNode != nil {
 		c.recursiveCollectTypes(iNode, &ce.ImplementedInterfaces, sourceBytes)
 	}
@@ -366,18 +370,17 @@ func (c *Collector) fillClassExtra(node *sitter.Node, extra *model.ElementExtra,
 }
 
 func (c *Collector) fillMethodExtra(node *sitter.Node, extra *model.ElementExtra, sourceBytes *[]byte) {
-	me := &model.MethodExtra{IsConstructor: node.Kind() == "constructor_declaration"}
-
+	me := &model.MethodExtra{
+		IsConstructor: node.Kind() == "constructor_declaration" || node.Kind() == "compact_constructor_declaration",
+	}
 	if tNode := node.ChildByFieldName("type"); tNode != nil {
 		me.ReturnType = c.getNodeContent(tNode, *sourceBytes)
 	}
-
 	if pNode := node.ChildByFieldName("parameters"); pNode != nil {
 		for i := 0; i < int(pNode.NamedChildCount()); i++ {
 			me.Parameters = append(me.Parameters, c.getNodeContent(pNode.NamedChild(uint(i)), *sourceBytes))
 		}
 	}
-
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(uint(i))
 		if child.Kind() == "throws" {
@@ -388,28 +391,19 @@ func (c *Collector) fillMethodExtra(node *sitter.Node, extra *model.ElementExtra
 	extra.MethodExtra = me
 }
 
-func (c *Collector) fillFieldExtra(node *sitter.Node, extra *model.ElementExtra, modifiers []string, sourceBytes *[]byte) {
-	fe := &model.FieldExtra{}
-
-	// 处理 Record 组件 (formal_parameter) 的类型提取
-	if node.Kind() == "formal_parameter" {
-		if tNode := node.ChildByFieldName("type"); tNode != nil {
-			fe.Type = c.getNodeContent(tNode, *sourceBytes)
-		}
-		fe.IsConstant = true // Record 组件隐含为 final
-	} else {
-		// 普通字段处理
-		if tNode := node.ChildByFieldName("type"); tNode != nil {
-			fe.Type = c.getNodeContent(tNode, *sourceBytes)
-		}
-		for _, m := range modifiers {
-			if m == "final" {
-				fe.IsConstant = true
-				break
-			}
+func (c *Collector) fillEnumConstantExtra(node *sitter.Node, extra *model.ElementExtra, sourceBytes *[]byte) {
+	argListNode := node.ChildByFieldName("arguments")
+	if argListNode == nil {
+		return
+	}
+	ece := &model.EnumConstantExtra{Arguments: make([]string, 0)}
+	for i := 0; i < int(argListNode.ChildCount()); i++ {
+		child := argListNode.Child(uint(i))
+		if child.IsNamed() {
+			ece.Arguments = append(ece.Arguments, c.getNodeContent(child, *sourceBytes))
 		}
 	}
-	extra.FieldExtra = fe
+	extra.EnumConstantExtra = ece
 }
 
 func (c *Collector) extractModifiersAndAnnotations(n *sitter.Node, sourceBytes []byte) ([]string, []string) {
@@ -423,7 +417,6 @@ func (c *Collector) extractModifiersAndAnnotations(n *sitter.Node, sourceBytes [
 			}
 		}
 	}
-
 	if mNode != nil {
 		for i := 0; i < int(mNode.ChildCount()); i++ {
 			child := mNode.Child(uint(i))
