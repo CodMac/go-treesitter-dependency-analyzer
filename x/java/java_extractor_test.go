@@ -673,6 +673,10 @@ func TestJavaExtractor_EnumErrorCode(t *testing.T) {
 	})
 }
 
+// 验证继承关系 (EXTEND)
+// 验证构造函数参数与 Super 调用 (PARAMETER & CALL)
+// 验证跨类调用 (CALL to getMessage)
+// 验证静态常量字段 (CONTAIN)
 func TestJavaExtractor_NotificationException(t *testing.T) {
 	// 1. 准备测试文件路径
 	targetFile := getTestFilePath(filepath.Join("com", "example", "model", "NotificationException.java"))
@@ -753,5 +757,100 @@ func TestJavaExtractor_NotificationException(t *testing.T) {
 			}
 		}
 		assert.True(t, foundSerialField, "Should contain serialVersionUID field")
+	})
+}
+
+func TestJavaExtractor_User(t *testing.T) {
+	// 1. 准备测试文件路径
+	targetFile := getTestFilePath(filepath.Join("com", "example", "model", "User.java"))
+
+	// 2. 执行收集与提取
+	gCtx := runPhase1Collection(t, []string{targetFile})
+	ext := java.NewJavaExtractor()
+	relations, err := ext.Extract(targetFile, gCtx)
+	assert.NoError(t, err)
+	printRelations(relations)
+
+	const userQN = "com.example.model.User"
+	const addonInfoQN = "com.example.model.User.AddonInfo"
+
+	// 3. 验证字段与静态方法调用 (UUID.randomUUID)
+	t.Run("Verify Static Method and Field", func(t *testing.T) {
+		foundUUIDCall := false
+		foundToStringCall := false
+
+		for _, rel := range relations {
+			// 验证 DEFAULT_ID 初始化时的 UUID.randomUUID()
+			if rel.Type == model.Call && strings.Contains(rel.Source.QualifiedName, "DEFAULT_ID") {
+				if rel.Target.QualifiedName == "java.util.UUID.randomUUID" {
+					foundUUIDCall = true
+				}
+				// 验证 .toString() 调用
+				if rel.Target.Name == "toString" {
+					foundToStringCall = true
+				}
+			}
+		}
+		assert.True(t, foundUUIDCall, "Should detect static call to java.util.UUID.randomUUID")
+		assert.True(t, foundToStringCall, "Should detect toString() call on UUID object")
+	})
+
+	// 4. 验证内部类 (Inner Class CONTAIN)
+	t.Run("Verify Inner Class Structure", func(t *testing.T) {
+		foundAddonInfo := false
+		foundInnerField := false
+
+		for _, rel := range relations {
+			// User CONTAIN AddonInfo
+			if rel.Type == model.Contain && rel.Source.QualifiedName == userQN {
+				if rel.Target.QualifiedName == addonInfoQN {
+					foundAddonInfo = true
+				}
+			}
+			// AddonInfo CONTAIN birthday
+			if rel.Type == model.Contain && rel.Source.QualifiedName == addonInfoQN {
+				if rel.Target.Name == "birthday" {
+					foundInnerField = true
+				}
+			}
+		}
+		assert.True(t, foundAddonInfo, "User should contain inner class AddonInfo")
+		assert.True(t, foundInnerField, "AddonInfo should contain field birthday")
+	})
+
+	// 5. 验证静态导入解析 (Static Imports)
+	t.Run("Verify Static Import Usage", func(t *testing.T) {
+		foundDaysUse := false
+		foundTimeUnitCall := false
+
+		// chooseUnit 方法内部逻辑
+		for _, rel := range relations {
+			if strings.Contains(rel.Source.QualifiedName, "chooseUnit") {
+				// 验证对静态导入 DAYS 的使用
+				// 根据 java_extractor 的 resolveTargetElement，静态导入通常解析到其所属类
+				if rel.Target.QualifiedName == "java.util.concurrent.TimeUnit.DAYS" {
+					foundDaysUse = true
+				}
+				// 验证 DAYS.convert(...) 调用
+				if rel.Type == model.Call && rel.Target.Name == "convert" {
+					foundTimeUnitCall = true
+				}
+			}
+		}
+		assert.True(t, foundDaysUse, "Should resolve static import DAYS to TimeUnit.DAYS")
+		assert.True(t, foundTimeUnitCall, "Should detect call to convert method")
+	})
+
+	// 6. 验证构造函数中的 Field Access (this)
+	t.Run("Verify This Reference", func(t *testing.T) {
+		foundIdAssignment := false
+		for _, rel := range relations {
+			if rel.Type == model.Use && rel.Source.Name == "User" && rel.Source.Kind == model.Method {
+				if rel.Target.QualifiedName == userQN+".id" {
+					foundIdAssignment = true
+				}
+			}
+		}
+		assert.True(t, foundIdAssignment, "Constructor should assign value to this.id")
 	})
 }
