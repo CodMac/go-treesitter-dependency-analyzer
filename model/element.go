@@ -74,6 +74,7 @@ type ClassExtra struct {
 	ImplementedInterfaces []string `json:"ImplementedInterfaces,omitempty"` // 实现的接口 (Java) 或嵌入/组合的类型 (Go)
 	IsAbstract            bool     `json:"IsAbstract,omitempty"`            // 是否是抽象的
 	IsFinal               bool     `json:"IsFinal,omitempty"`               // 是否是 final
+	IsBuiltin             bool     `json:"IsBuiltin,omitempty"`             // 是否是 库内置的  (e.g., ["String"])
 }
 
 // FieldExtra 存储字段或常量的特有信息

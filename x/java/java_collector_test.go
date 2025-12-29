@@ -1136,17 +1136,27 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 
 // 验证 Record 定义解析
 // 验证 Record Components (Field + Method)
+// 验证紧凑构造函数 (Compact Constructor)
 // 验证显式定义的方法
+// 验证变长参数 (Varargs) 类型处理
+// 验证构造函数参数
+// 验证深层嵌套（内部类方法）参数
 func TestJavaCollector_ModernRecord(t *testing.T) {
 	// 1. 获取测试文件路径
-	targetFile := getTestFilePath(filepath.Join("com", "example", "shop", "ModernOrderProcessor.java"))
+	filePath := getTestFilePath(filepath.Join("com", "example", "shop", "ModernOrderProcessor.java"))
 
-	// 2. 执行 Phase 1: 符号收集
-	// 假设 runPhase1Collection 是你封装的初始化 GlobalContext 并调用 Collector.Collect 的方法
-	gCtx := runPhase1Collection(t, []string{targetFile})
+	// 2. 解析源码
+	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, true, true)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
 
-	fCtx, ok := gCtx.FileContexts[targetFile]
-	assert.True(t, ok, "FileContext should exist for ModernOrderProcessor.java")
+	// 3. 运行 Collector
+	collector := java.NewJavaCollector()
+	fCtx, err := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
+	if err != nil {
+		t.Fatalf("CollectDefinitions failed: %v", err)
+	}
 
 	// 3. 验证 Record 定义解析
 	t.Run("Verify Record Declaration", func(t *testing.T) {
@@ -1204,6 +1214,52 @@ func TestJavaCollector_ModernRecord(t *testing.T) {
 			assert.Equal(t, model.Method, defs[0].Element.Kind)
 			assert.Equal(t, "com.example.shop.Order."+mName, defs[0].Element.QualifiedName)
 		}
+	})
+
+	// 7. 验证变长参数 (Varargs) 类型处理
+	t.Run("Verify Varargs Parameter", func(t *testing.T) {
+		paramName := "labels"
+		defs := fCtx.DefinitionsBySN[paramName]
+		if len(defs) == 0 {
+			t.Fatalf("Varargs parameter %q not found", paramName)
+		}
+
+		elem := defs[0].Element
+
+		// 验证类型是否正确附加了 "..."
+		assert.Equal(t, "String...", elem.Extra.FieldExtra.Type, "Varargs type must be correctly identified with '...'")
+		assert.Equal(t, "com.example.scope.ParameterScopeTester.execute.labels", elem.QualifiedName)
+	})
+
+	// 8. 验证构造函数参数
+	t.Run("Verify Constructor Parameter", func(t *testing.T) {
+		paramName := "initialConfig"
+		defs := fCtx.DefinitionsBySN[paramName]
+		if len(defs) == 0 {
+			t.Fatalf("Constructor parameter %q not found", paramName)
+		}
+
+		elem := defs[0].Element
+
+		// 构造函数的 QN 通常为: 类名.类名 (作为方法名).参数名
+		expectedQN := "com.example.scope.ParameterScopeTester.ParameterScopeTester.initialConfig"
+		assert.Equal(t, expectedQN, elem.QualifiedName, "Constructor parameter QN mismatch")
+	})
+
+	// 9. 验证深层嵌套（内部类方法）参数
+	t.Run("Verify Nested Method Parameter", func(t *testing.T) {
+		paramName := "duration"
+		defs := fCtx.DefinitionsBySN[paramName]
+		if len(defs) == 0 {
+			t.Fatalf("Nested parameter %q not found", paramName)
+		}
+
+		elem := defs[0].Element
+
+		// 预期层级: 类.内部类.方法.参数
+		expectedQN := "com.example.scope.ParameterScopeTester.InnerWorker.doWork.duration"
+		assert.Equal(t, expectedQN, elem.QualifiedName)
+		assert.Equal(t, "long", elem.Extra.FieldExtra.Type)
 	})
 }
 

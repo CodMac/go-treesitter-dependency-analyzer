@@ -1,151 +1,119 @@
 # 🌳 Go Tree-sitter Dependency Analyzer
 
-[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![Tree-sitter](https://img.shields.io/badge/Parser-Tree--sitter-green)](https://tree-sitter.github.io/)
+**Go Tree-sitter Dependency Analyzer** 是一个工业级的高性能源码依赖分析引擎。它利用 **Tree-sitter** 的精确解析能力，通过 **两阶段分析（Two-Phase Analysis）** 策略，能够从大规模代码库中提取出具有语义深度的代码元素（类、方法、参数）及其相互依赖关系。
 
-**Go Tree-sitter Dependency Analyzer** 是一个高性能的代码依赖分析工具。它专为大规模代码库设计，利用 **Tree-sitter** 的增量解析能力和 Go 的并发特性，精确地从源码中提取代码元素（类、方法、字段）及其相互依赖关系。
-
-该工具采用 **两阶段分析（Two-Phase Analysis）** 策略，能够有效解决跨文件符号解析问题，生成包含丰富元数据的结构化依赖图。
+该工具不仅仅是简单的文本扫描，它具备**作用域感知**、**继承链追踪**以及**内置符号推导**能力，能够还原出接近编译器级别的依赖图谱。
 
 ## ✨ 核心特性
 
-*   **⚡️ 高性能并发架构**：基于 Go协程（Goroutines）的 Worker Pool 设计，支持并发解析和提取，充分利用多核 CPU。
-*   **🧩 两阶段精确分析**：
-*   **Phase 1 (Definition)**：构建全局符号表（Global Context），记录全限定名（Qualified Name）、包结构和导入关系。
-*   **Phase 2 (Extraction)**：基于符号表解析引用，识别跨文件的复杂依赖。
-*   **☕️ 深度 Java 支持**（当前重点）：
-*   支持 **类 (Class)**、**接口 (Interface)**、**枚举 (Enum)** 及 **注解 (Annotation)**。
-*   支持 **内部类** 和 **内部枚举** 的嵌套结构分析。
-*   精确提取 **修饰符** (public, static, final)、**泛型签名**、**异常抛出** 等元数据。
-*   **🔗 丰富的关系类型**：
-*   `CALL` (方法调用), `IMPORT` (导入), `create` (对象创建), `EXTEND` (继承), `IMPLEMENT` (实现)。
-*   `USE` (字段/变量使用), `CAST` (类型强转), `THROW` (异常抛出), `ANNOTATION` (注解修饰), `CONTAIN` (结构包含)。
-*   **🛠 AST 可视化调试**：支持将源文件的 AST 导出为格式化的 S-expression (`.ast.format`)，便于调试解析逻辑。
+* **⚡️ 高性能并发架构**：基于 Go 协程的 Worker Pool 设计，支持万级文件并发解析，秒级完成中大型项目全扫描。
+* **🧩 两阶段语义分析**：
+* **Phase 1 (Collection)**：构建全局符号表，自动处理 Package、Imports 及符号的全限定名（Qualified Name）。
+* **Phase 2 (Extraction)**：执行深度依赖提取，支持跨文件的符号消歧。
 
-## ⚙️ 项目结构
 
-```text
-.
-├── collector/       # Phase 1: 定义收集器接口与工厂
-├── extractor/       # Phase 2: 关系提取器接口与工厂
-├── model/           # 核心数据模型 (CodeElement, DependencyRelation, GlobalContext)
-├── parser/          # Tree-sitter 解析器封装，AST 生成
-├── processor/       # 流程控制器，调度并发 Worker 执行两阶段分析
-├── output/          # 结果输出处理 (JSON Lines)
-├── x/               # 语言特定实现扩展包
-│   └── java/        # Java 语言的 Collector 和 Extractor 实现
-├── main.go          # 程序入口，命令行参数处理
-└── go.mod           # 依赖定义
-```
+* **☕️ 现代 Java 特性深度支持**：
+* **Java 17 Record**：完美识别 Record 的隐式组件、字段及访问器方法（Accessor）。
+* **作用域追踪**：精确到**方法参数级**的 Qualified Name（如 `pkg.Class.method.param`），彻底解决同名变量混淆。
+* **内置库感知**：内置 100+ 核心 JDK 符号表（`java.lang`, `java.util`, `java.time` 等），支持隐式类型解析。
+* **继承链解析**：支持沿 `extends` 链向上搜索字段与方法调用。
 
-## 🚀 快速开始
 
-### 1. 环境准备
+* **🔗 精细化依赖模型**：
+* **结构关系**：`EXTEND`, `IMPLEMENT`, `CONTAIN`, `ANNOTATION`。
+* **行为关系**：`CALL` (方法调用), `CREATE` (实例化), `USE` (字段访问), `CAST` (强转), `THROW` (异常抛出)。
+* **方法特征**：`RETURN` (返回类型), `PARAMETER` (参数类型引用)。
 
-由于依赖 `go-tree-sitter`，构建环境需要安装 **C 编译器**。
 
-*   **Linux/macOS**: GCC (通常默认安装)
-*   **Windows**: 推荐安装 [MinGW-w64](https://www.mingw-w64.org/) 并配置 PATH。
 
-### 2. 构建项目
+## ⚙️ 核心解析逻辑
 
-```bash
-git clone https://github.com/CodMac/go-treesitter-dependency-analyzer.git
-cd go-treesitter-dependency-analyzer
+工具通过 `ElementExtra` 结构捕获了极丰富的代码元数据：
 
-# 启用 CGO 编译 (必须)
-CGO_ENABLED=1 go build -o dependency-analyzer main.go
-```
+* **修饰符与注解**：提取 `public`, `static`, `final` 及 `@Service`, `@Override` 等注解。
+* **方法特征**：记录是否为构造函数、参数列表原始签名、抛出的异常类型等。
+* **类特征**：记录父类、接口列表、是否为抽象类或内置类。
 
-### 3. 运行分析
+## 📄 输出 JSON 示例 (Rich Metadata)
 
-**基本用法**:
-```bash
-./dependency-analyzer -lang <language> -path <source_path> [options]
-```
-
-**示例**: 分析当前目录下的 Java 项目，输出到文件：
-
-```bash
-./dependency-analyzer -lang java -path ./src -jobs 8 > output.jsonl
-```
-
-**常用参数**:
-
-| 参数 | 默认值 | 说明 |
-| :--- | :--- | :--- |
-| `-lang` | `go` | 目标分析语言 (目前支持完整特性的为 `java`) |
-| `-path` | `.` | 源代码目录或文件路径 |
-| `-filter` | `""` | 文件名过滤正则表达式 (例如: `".*\.java$"`) |
-| `-jobs` | `4` | 并发 Worker 数量 |
-| `-output-ast` | `false` | 是否输出解析后的 AST 文件 (`.ast`) 用于调试 |
-| `-format-ast` | `true` | 是否格式化输出的 AST 文件 |
-
-## 📄 输出格式
-
-结果以 **JSON Lines (JSONL)** 格式输出，每行代表一个依赖关系。
-
-### JSON 示例
+每一行输出都包含完整的上下文，非常适合作为 AI 模型、代码审计工具或架构演化分析的输入。
 
 ```json
 {
   "Type": "CALL",
   "Source": {
     "Kind": "METHOD",
-    "Name": "findById",
-    "QualifiedName": "com.example.service.UserService.findById",
-    "Path": "src/com/example/service/UserService.java",
-    "Signature": "public User (String id)",
+    "Name": "processOrder",
+    "QualifiedName": "com.shop.OrderService.processOrder",
+    "Path": "src/main/java/com/shop/OrderService.java",
     "Extra": {
-      "ReturnType": "User",
-      "MethodExtra": { "Parameters": ["String id"] }
+      "MethodExtra": {
+        "ReturnType": "boolean",
+        "Parameters": ["Order order", "User user"]
+      }
     }
   },
   "Target": {
     "Kind": "METHOD",
-    "Name": "findOne",
-    "QualifiedName": "com.example.service.UserRepository.findOne"
+    "Name": "price",
+    "QualifiedName": "com.shop.model.Order.price",
+    "Extra": {
+      "MethodExtra": { "IsConstructor": false }
+    }
   },
   "Location": {
-    "FilePath": "src/com/example/service/UserService.java",
-    "StartLine": 25,
-    "EndLine": 25,
-    "StartColumn": 20,
-    "EndColumn": 42
+    "FilePath": "src/main/java/com/shop/OrderService.java",
+    "StartLine": 42,
+    "StartColumn": 25
   }
 }
+
 ```
 
-### 关键字段说明
+## 🚀 快速开始
 
-*   **`Type`**: 依赖类型 (如 `CALL`, `IMPORT`, `EXTEND` 等)。
-*   **`Source` / `Target`**:
-*   `Kind`: 元素类型 (`CLASS`, `METHOD`, `FIELD`, `INTERFACE`, `ENUM` 等)。
-*   `QualifiedName`: 全限定名（例如 `com.pkg.Class.method`），用于唯一标识符号。
-*   `Extra`: 包含语言特定的详细信息，如 Java 的修饰符 (`public static`)、注解列表、父类、接口实现列表等。
+### 1. 环境准备
 
-## 🛠️ 扩展新语言
+需要安装 **Go 1.25+** 和 **C 编译器**（用于编译 Tree-sitter C 库）。
 
-项目采用插件化架构，添加新语言支持（如 Python 或 Go）非常简单：
-
-1.  在 `x/` 目录下创建新语言包 (例如 `x/python`)。
-2.  实现 `collector.Collector` 接口：定义如何从 AST 中收集符号定义。
-3.  实现 `extractor.Extractor` 接口：编写 Tree-sitter Queries 提取依赖关系。
-4.  在 `init()` 函数中调用 `parser.RegisterLanguage` 等方法注册组件。
-5.  在 `main.go` 中导入该包：`_ "github.com/.../x/python"`。
-
-## 🧪 测试
-
-项目包含完整的单元测试，覆盖 Parser、Collector 和 Processor 逻辑。
+### 2. 构建与运行
 
 ```bash
-# 运行所有测试
-CGO_ENABLED=1 go test ./...
+# 构建
+CGO_ENABLED=1 go build -o analyzer main.go
 
-# 运行特定测试（如 Java 部分）
-CGO_ENABLED=1 go test ./x/java/... -v
+# 运行分析 (以 Java 项目为例)
+./analyzer -lang java -path ./your-project-path -filter ".*\.java$" > dependencies.jsonl
+
 ```
 
-## 📜 License
+### 3. 命令行参数
 
-MIT License
+| 参数 | 说明 |
+| --- | --- |
+| `-lang` | 目标语言（目前 `java` 支持最完整，`go` 开发中） |
+| `-path` | 待分析的项目根目录 |
+| `-filter` | 正则表达式，过滤特定文件后缀 |
+| `-jobs` | 并发线程数（默认 4） |
+| `-output` | 指定输出文件路径 |
+
+## 🧪 自动化测试
+
+项目拥有极高的测试覆盖率，特别是针对 Java 的各种边缘情况：
+
+* `TestJavaCollector_ModernRecord`: 验证 Java 17 Record 解析。
+* `TestJavaExtractor_Comprehensive`: 验证跨包继承与泛型擦除后的符号解析。
+* `TestJavaExtractor_AnnotationMetadata`: 验证注解内静态枚举常量的引用。
+
+```bash
+CGO_ENABLED=1 go test ./x/java/... -v
+
+```
+
+## 🛠️ 扩展指南
+
+如果你想支持新语言（如 Rust, Python）：
+
+1. 在 `model/element.go` 中定义该语言特有的 `ElementKind`。
+2. 在 `x/` 下实现 `Collector`（扫描定义）和 `Extractor`（扫描引用）。
+3. 利用 `GlobalContext.ResolveSymbol` 挂载你语言特有的解析逻辑。
