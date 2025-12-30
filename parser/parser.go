@@ -17,6 +17,7 @@ import (
 type Parser interface {
 	// ParseFile 的签名需要更新以适应配置参数
 	ParseFile(filePath string, enableASTOutput bool, formatAST bool) (*sitter.Node, *[]byte, error)
+	Close()
 }
 
 // TreeSitterParser Parser的具体实现
@@ -26,8 +27,7 @@ type TreeSitterParser struct {
 }
 
 // NewParser 创建一个新的 TreeSitterParser 实例
-func NewParser(lang model.Language) (*TreeSitterParser, error) {
-	// 假设 GetLanguage(lang) 能够从语言注册中心获取 *sitter.Language
+func NewParser(lang model.Language) (Parser, error) {
 	tsLang, err := GetLanguage(lang)
 	if err != nil {
 		return nil, err

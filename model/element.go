@@ -62,10 +62,11 @@ type ElementExtra struct {
 
 // MethodExtra 存储方法或函数的特有信息
 type MethodExtra struct {
-	IsConstructor bool     `json:"IsConstructor"`         // 是否是构造函数
-	ReturnType    string   `json:"ReturnType,omitempty"`  // 适用于 Method/Function, Field (Java)
-	ThrowsTypes   []string `json:"ThrowsTypes,omitempty"` // 抛出的异常类型 (Java) 或返回错误 (Go)
-	Parameters    []string `json:"Parameters,omitempty"`  // 格式化的参数列表 (e.g., ["String name", "int count"])
+	IsConstructor      bool     `json:"IsConstructor"`         // 是否是构造函数
+	IncludeParamNameQN string   `json:"IncludeParamNameQN"`    // 包含参数名称的QN
+	ReturnType         string   `json:"ReturnType,omitempty"`  // 适用于 Method/Function, Field (Java)
+	ThrowsTypes        []string `json:"ThrowsTypes,omitempty"` // 抛出的异常类型 (Java) 或返回错误 (Go)
+	Parameters         []string `json:"Parameters,omitempty"`  // 格式化的参数列表 (e.g., ["String name", "int count"])
 }
 
 // ClassExtra 存储类、接口、结构体或枚举的特有信息
@@ -80,6 +81,7 @@ type ClassExtra struct {
 // FieldExtra 存储字段或常量的特有信息
 type FieldExtra struct {
 	IsConstant bool   `json:"IsConstant,omitempty"` // 是否是常量 (final in Java, const in Go)
+	IsParam    bool   `json:"IsParam,omitempty"`    // 是否是函数入参
 	Type       string `json:"Type,omitempty"`       // 适用于 Field/Variable (Go/Java)
 }
 

@@ -24,7 +24,7 @@ func runPhase1Collection(t *testing.T, files []string) *model.GlobalContext {
 	col := java.NewJavaCollector()
 
 	for _, file := range files {
-		rootNode, sourceBytes, err := javaParser.ParseFile(file, false, false)
+		rootNode, sourceBytes, err := javaParser.ParseFile(file, true, false)
 		if err != nil {
 			t.Fatalf("Failed to parse file %s: %v", file, err)
 		}
@@ -96,7 +96,7 @@ func TestJavaExtractor_CallbackManager(t *testing.T) {
 				foundLocalClass = true
 				assert.Equal(t, model.Class, rel.Target.Kind)
 				// 验证 QN 是否正确包含了方法名作为前缀
-				assert.Contains(t, rel.Target.QualifiedName, "CallbackManager.register.LocalValidator")
+				assert.Contains(t, rel.Target.QualifiedName, "CallbackManager.register().LocalValidator")
 			}
 		}
 		assert.True(t, foundLocalClass, "Should extract LocalValidator under register method")
@@ -130,12 +130,12 @@ func TestJavaExtractor_CallbackManager(t *testing.T) {
 	t.Run("Verify Chained Call Resolution", func(t *testing.T) {
 		foundFullCall := false
 		for _, rel := range relations {
-			if rel.Type == model.Call && rel.Target.QualifiedName == "java.lang.System.out.println" {
+			if rel.Type == model.Call && rel.Target.QualifiedName == "java.lang.System.out.println()" {
 				foundFullCall = true
 				break
 			}
 		}
-		assert.True(t, foundFullCall, "Should resolve full path for chained call: java.lang.System.out.println")
+		assert.True(t, foundFullCall, "Should resolve full path for chained call: java.lang.System.out.println()")
 	})
 }
 
@@ -324,7 +324,7 @@ func TestJavaExtractor_AnnotationMetadata(t *testing.T) {
 		for _, rel := range relations {
 			// String level() -> 应该产生一个 RETURN 关系指向 String
 			if rel.Type == model.Return &&
-				rel.Source.QualifiedName == "com.example.annotation.Loggable.level" &&
+				rel.Source.QualifiedName == "com.example.annotation.Loggable.level()" &&
 				rel.Target.QualifiedName == "java.lang.String" {
 				foundLevelType = true
 				assert.True(t, rel.Target.Extra.ClassExtra.IsBuiltin, "String should be marked as Builtin")
@@ -537,13 +537,13 @@ func TestJavaExtractor_BaseEntity(t *testing.T) {
 				}
 			}
 			// 方法返回类型 (ID)
-			if rel.Type == model.Return && rel.Source.QualifiedName == entityQN+".getId" {
+			if rel.Type == model.Return && rel.Source.QualifiedName == entityQN+".getId()" {
 				if rel.Target.Name == "ID" {
 					foundGetIdReturn = true
 				}
 			}
 			// 方法参数类型 (ID)
-			if rel.Type == model.Parameter && rel.Source.QualifiedName == entityQN+".setId" {
+			if rel.Type == model.Parameter && rel.Source.QualifiedName == entityQN+".setId(ID)" {
 				if rel.Target.Name == "ID" {
 					foundSetIdParam = true
 				}
@@ -556,8 +556,8 @@ func TestJavaExtractor_BaseEntity(t *testing.T) {
 			}
 		}
 		assert.True(t, foundSerializable, "Should implement Serializable")
-		assert.True(t, foundGetIdReturn, "getId should return ID")
-		assert.True(t, foundSetIdParam, "setId should have ID parameter")
+		assert.True(t, foundGetIdReturn, "getId() should return ID")
+		assert.True(t, foundSetIdParam, "setId(ID) should have ID parameter")
 		assert.True(t, foundInnerClass, "Should contain EntityMeta")
 	})
 
@@ -568,26 +568,26 @@ func TestJavaExtractor_BaseEntity(t *testing.T) {
 		for _, rel := range relations {
 			// 核心修复点：验证 setId 方法对 id 字段的访问 (this.id = id)
 			// Source 是方法，Target 是字段
-			if rel.Type == model.Use && rel.Source.QualifiedName == entityQN+".setId" {
+			if rel.Type == model.Use && rel.Source.QualifiedName == entityQN+".setId(ID)" {
 				if rel.Target.QualifiedName == entityQN+".id" {
 					foundFieldUse = true
 				}
 			}
 		}
-		assert.True(t, foundFieldUse, "Method setId should USE field id")
+		assert.True(t, foundFieldUse, "Method setId(ID) should USE field id")
 	})
 
 	// 3. 验证内部类 QN 拼接逻辑
 	t.Run("Verify Inner Class Methods", func(t *testing.T) {
 		foundStringReturn := false
 		for _, rel := range relations {
-			if rel.Type == model.Return && rel.Source.QualifiedName == metaQN+".getTableName" {
+			if rel.Type == model.Return && rel.Source.QualifiedName == metaQN+".getTableName()" {
 				if rel.Target.QualifiedName == "java.lang.String" {
 					foundStringReturn = true
 				}
 			}
 		}
-		assert.True(t, foundStringReturn, "EntityMeta.getTableName should return String")
+		assert.True(t, foundStringReturn, "EntityMeta.getTableName() should return String")
 	})
 }
 
@@ -642,7 +642,7 @@ func TestJavaExtractor_EnumErrorCode(t *testing.T) {
 		foundMessageUse := false
 
 		// 构造函数的 QN 通常为 enumQN.ErrorCode
-		const constructorQN = enumQN + ".ErrorCode"
+		const constructorQN = enumQN + ".ErrorCode(int,String)"
 
 		for _, rel := range relations {
 			if rel.Type == model.Use && rel.Source.QualifiedName == constructorQN {
@@ -680,9 +680,10 @@ func TestJavaExtractor_EnumErrorCode(t *testing.T) {
 func TestJavaExtractor_NotificationException(t *testing.T) {
 	// 1. 准备测试文件路径
 	targetFile := getTestFilePath(filepath.Join("com", "example", "model", "NotificationException.java"))
+	supplementaryFile := getTestFilePath(filepath.Join("com", "example", "model", "ErrorCode.java"))
 
 	// 2. 执行收集与提取
-	gCtx := runPhase1Collection(t, []string{targetFile})
+	gCtx := runPhase1Collection(t, []string{targetFile, supplementaryFile})
 	ext := java.NewJavaExtractor()
 	relations, err := ext.Extract(targetFile, gCtx)
 	assert.NoError(t, err)
@@ -709,7 +710,7 @@ func TestJavaExtractor_NotificationException(t *testing.T) {
 		foundThrowableParam := false
 		foundSuperCall := false
 
-		const constructor1QN = exceptionQN + ".NotificationException"
+		const constructor1QN = exceptionQN + ".NotificationException(String,Throwable)"
 
 		for _, rel := range relations {
 			// 验证参数类型 Throwable (内置类)
@@ -719,9 +720,9 @@ func TestJavaExtractor_NotificationException(t *testing.T) {
 				}
 			}
 			// 验证 super(message, cause) 产生的 Call 关系
-			// 注意：在 Java 中 super() 指向父类构造函数，QN 通常被解析为 java.lang.Exception.Exception
+			// 注意：在 Java 中 super() 指向父类构造函数，QN 通常被解析为 java.lang.Exception.Exception()
 			if rel.Type == model.Call && rel.Source.QualifiedName == constructor1QN {
-				if strings.Contains(rel.Target.QualifiedName, "Exception.Exception") || rel.Target.Name == "super" {
+				if strings.Contains(rel.Target.QualifiedName, "Exception.Exception()") || rel.Target.Name == "super" {
 					foundSuperCall = true
 				}
 			}
@@ -737,8 +738,8 @@ func TestJavaExtractor_NotificationException(t *testing.T) {
 
 		for _, rel := range relations {
 			// 验证在 NotificationException(ErrorCode code) 中调用了 code.getMessage()
-			if rel.Type == model.Call && strings.Contains(rel.Source.QualifiedName, "NotificationException") {
-				if rel.Target.QualifiedName == exceptionQN+".NotificationException.code.getMessage" {
+			if rel.Type == model.Call && strings.Contains(rel.Source.QualifiedName, "NotificationException(ErrorCode)") {
+				if rel.Target.QualifiedName == exceptionQN+".NotificationException(ErrorCode).code.getMessage()" {
 					foundGetMessageCall = true
 				}
 			}
@@ -760,6 +761,10 @@ func TestJavaExtractor_NotificationException(t *testing.T) {
 	})
 }
 
+// 验证字段与静态方法调用 (UUID.randomUUID())
+// 验证内部类 (Inner Class CONTAIN)
+// 验证静态导入解析 (Static Imports)
+// 验证构造函数中的 Field Access (this)
 func TestJavaExtractor_User(t *testing.T) {
 	// 1. 准备测试文件路径
 	targetFile := getTestFilePath(filepath.Join("com", "example", "model", "User.java"))
@@ -782,7 +787,7 @@ func TestJavaExtractor_User(t *testing.T) {
 		for _, rel := range relations {
 			// 验证 DEFAULT_ID 初始化时的 UUID.randomUUID()
 			if rel.Type == model.Call && strings.Contains(rel.Source.QualifiedName, "DEFAULT_ID") {
-				if rel.Target.QualifiedName == "java.util.UUID.randomUUID" {
+				if rel.Target.QualifiedName == "java.util.UUID.randomUUID()" {
 					foundUUIDCall = true
 				}
 				// 验证 .toString() 调用
@@ -791,7 +796,7 @@ func TestJavaExtractor_User(t *testing.T) {
 				}
 			}
 		}
-		assert.True(t, foundUUIDCall, "Should detect static call to java.util.UUID.randomUUID")
+		assert.True(t, foundUUIDCall, "Should detect static call to java.util.UUID.randomUUID()")
 		assert.True(t, foundToStringCall, "Should detect toString() call on UUID object")
 	})
 
@@ -825,14 +830,14 @@ func TestJavaExtractor_User(t *testing.T) {
 
 		// chooseUnit 方法内部逻辑
 		for _, rel := range relations {
-			if strings.Contains(rel.Source.QualifiedName, "chooseUnit") {
+			if strings.Contains(rel.Source.QualifiedName, "chooseUnit(long)") {
 				// 验证对静态导入 DAYS 的使用
 				// 根据 java_extractor 的 resolveTargetElement，静态导入通常解析到其所属类
-				if rel.Target.QualifiedName == "java.util.concurrent.TimeUnit.DAYS" {
+				if strings.Contains(rel.Target.QualifiedName, "java.util.concurrent.TimeUnit.DAYS") {
 					foundDaysUse = true
 				}
 				// 验证 DAYS.convert(...) 调用
-				if rel.Type == model.Call && rel.Target.Name == "convert" {
+				if rel.Type == model.Call && rel.Target.QualifiedName == "java.util.concurrent.TimeUnit.DAYS.convert()" {
 					foundTimeUnitCall = true
 				}
 			}

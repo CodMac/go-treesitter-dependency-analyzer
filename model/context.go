@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -29,7 +30,7 @@ type FileContext struct {
 	PackageName     string                        // 文件所属的包/模块名 (例如 Java 的 package)
 	RootNode        *sitter.Node                  // AST根节点
 	SourceBytes     *[]byte                       // 源码内容 (指针)
-	DefinitionsBySN map[string][]*DefinitionEntry // 局部定义查找 (短名称 -> 定义列表), 使用切片支持重载（如多个构造函数）或内部类与方法同名的情况
+	DefinitionsBySN map[string][]*DefinitionEntry // 局部定义查找 (短名称 -> 定义列表), 使用切片支持重载（如多个构造函数）或内部类与方法同名的情况, Key为短名称（不包含括号、泛型、参数...）
 	Imports         map[string]*ImportEntry       // Key 为 Alias (如 "List" 或 "L")
 	mutex           sync.RWMutex
 }
@@ -87,6 +88,18 @@ func (gc *GlobalContext) RegisterFileContext(fc *FileContext) {
 
 	gc.FileContexts[fc.FilePath] = fc
 
+	// 1. 自动生成并注册 FILE 节点
+	fileElem := &CodeElement{
+		Kind:          File,
+		Name:          filepath.Base(fc.FilePath),
+		QualifiedName: fc.FilePath, // 此时路径已归一化
+		Path:          fc.FilePath,
+	}
+	gc.DefinitionsByQN[fc.FilePath] = append(gc.DefinitionsByQN[fc.FilePath], &DefinitionEntry{
+		Element: fileElem,
+	})
+
+	// 2. 注册文件内的其他定义
 	for _, entries := range fc.DefinitionsBySN {
 		for _, entry := range entries {
 			qn := entry.Element.QualifiedName
@@ -141,6 +154,27 @@ func (gc *GlobalContext) ResolveSymbol(fc *FileContext, symbol string) []*Defini
 	}
 
 	return nil
+}
+
+// NormalizeElementPaths 将元素中的绝对路径转换为相对于 rootPath 的相对路径
+func (gc *GlobalContext) NormalizeElementPaths(elem *CodeElement, rootPath string) {
+	if elem == nil || rootPath == "" {
+		return
+	}
+
+	// 1. 处理 Path 字段
+	if elem.Path != "" && filepath.IsAbs(elem.Path) {
+		if rel, err := filepath.Rel(rootPath, elem.Path); err == nil {
+			elem.Path = rel
+		}
+	}
+
+	// 2. 处理 FILE 类型的 QualifiedName (通常是全路径)
+	if elem.Kind == File && filepath.IsAbs(elem.QualifiedName) {
+		if rel, err := filepath.Rel(rootPath, elem.QualifiedName); err == nil {
+			elem.QualifiedName = rel
+		}
+	}
 }
 
 // BuildQualifiedName 构建限定名称 (Qualified Name, QN)

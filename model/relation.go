@@ -6,20 +6,48 @@ package model
 type DependencyType string
 
 const (
-	Call       DependencyType = "CALL"       // Call: Source calls Target function/method.
-	Import     DependencyType = "IMPORT"     // Import: Source file/module imports Target package/module.
-	Contain    DependencyType = "CONTAIN"    // Contain: Source element contains Target element (e.g., Class contains Member).
-	Parameter  DependencyType = "PARAMETER"  // Parameter: Function/Method uses Target type as a parameter.
-	Return     DependencyType = "RETURN"     // Return: Function/Method returns Target type.
-	Throw      DependencyType = "THROW"      // Throw: Function/Method throws Target exception type.
-	Implement  DependencyType = "IMPLEMENT"  // Implement: Class implements Interface, or function implements Prototype.
-	Extend     DependencyType = "EXTEND"     // Extend: Class inherits from another Base Class.
-	Create     DependencyType = "CREATE"     // Create: Function/Method instantiates/creates an object of Target type.
-	Use        DependencyType = "USE"        // Use: Source expression/block uses Target field/variable/constant/type (General Reference).
-	Cast       DependencyType = "CAST"       // Cast: Expression is explicitly cast to Target type.
-	ImplLink   DependencyType = "IMPL_LINK"  // ImplLink: Implementation Link (e.g., C/C++ linking prototype to implementation).
-	Annotation DependencyType = "ANNOTATION" // Annotation: Code element is decorated by Target Annotation/Decorator.
-	Mixin      DependencyType = "MIXIN"      // Mixin: Class includes/mixes in Target Module (e.g., Ruby).
+	// Import 导入 imports Target package/module
+	// e.g., [Java: Source(File) -> Target(Package/Class/Constant)]
+	Import DependencyType = "IMPORT"
+	// Contain 包含成员 Source element contains Target element
+	// e.g., [Java: Source(Class...) -> Target(Class/Interface/Enum/Method/Field...)]
+	Contain DependencyType = "CONTAIN"
+	// Parameter 函数参数
+	// e.g., [Java: Source(Method) -> Target(Type/Class)]
+	Parameter DependencyType = "PARAMETER"
+	// Return 函数返回类型
+	// e.g., [Java: Source(Method) -> Target(Type/Class)]
+	Return DependencyType = "RETURN"
+	// Throw 函数抛出类型
+	// e.g., [Java: Source(Method) -> Target(Class)]
+	Throw DependencyType = "THROW"
+	// Implement 类实现
+	// e.g., [Java: Source(Class) -> Target(Interface)].
+	Implement DependencyType = "IMPLEMENT"
+	// Extend 类/接口继承
+	// e.g., [Java: Source(Class) -> Target(Class)]、[Java: Source(Interface) -> Target(Interface)]
+	Extend DependencyType = "EXTEND"
+	// Annotation 注解修饰
+	// e.g., [Java: Source(Class...) -> Target(KAnnotation)]
+	Annotation DependencyType = "ANNOTATION"
+	// Call 函数调用 calls a Target Method/Function
+	// 关注点：谁调用了谁
+	// e.g., [Java: Source(Method) -> Target(Method)]
+	Call DependencyType = "CALL"
+	// Use 字段使用 Source expression/block uses Target field/variable/constant/type
+	// 关注点：谁使用了谁
+	// e.g., [Java: Source(Method) -> Target(Field)]
+	Use DependencyType = "USE"
+	// Create 显式实例创建 creates an object of Target type
+	// 关注点：哪个地方存在实例创建
+	// e.g., [Java: Source(Method) -> Target(Class)]
+	Create DependencyType = "CREATE"
+	// Cast 类型强转 Target type explicitly cast to Target type
+	// 关注点：有哪些类型被强行转换
+	// e.g., [Java: Source(Class) -> Target(Class)]
+	Cast     DependencyType = "CAST"
+	ImplLink DependencyType = "IMPL_LINK" // ImplLink: Implementation Link (e.g., C/C++ linking prototype to implementation).
+	Mixin    DependencyType = "MIXIN"     // Mixin: Class includes/mixes in Target Module (e.g., Ruby).
 )
 
 // DependencyRelation 是工具的核心输出结构，描述了 Source 和 Target 之间的一个依赖关系
