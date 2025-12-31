@@ -18,16 +18,16 @@ func NewJavaExtractor() *Extractor {
 
 // JavaActionQuery 定义了需要捕获的动作型节点：调用、引用、创建、强转等
 const JavaActionQuery = `
-   [
-      (method_invocation name: (identifier) @call_target) @call_stmt
-      (method_reference (identifier) @ref_target) @ref_stmt
-      (explicit_constructor_invocation 
-          constructor: [ (super) @super_target (this) @this_target ]) @explicit_call_stmt
-      (object_creation_expression 
-          type: [(type_identifier) @create_target_name (generic_type (type_identifier) @create_target_name)]) @create_stmt
-      (field_access field: (identifier) @use_field_name) @use_field_stmt
-      (cast_expression type: (type_identifier) @cast_type) @cast_stmt
-   ]
+ [
+   (method_invocation name: (identifier) @call_target) @call_stmt
+   (method_reference (identifier) @ref_target) @ref_stmt
+   (explicit_constructor_invocation
+     constructor: [ (super) @super_target (this) @this_target ]) @explicit_call_stmt
+   (object_creation_expression
+     type: [(type_identifier) @create_target_name (generic_type (type_identifier) @create_target_name)]) @create_stmt
+   (field_access field: (identifier) @use_field_name) @use_field_stmt
+   (cast_expression type: (type_identifier) @cast_type) @cast_stmt
+ ]
 `
 
 func (e *Extractor) Extract(filePath string, gCtx *model.GlobalContext) ([]*model.DependencyRelation, error) {
@@ -44,6 +44,7 @@ func (e *Extractor) Extract(filePath string, gCtx *model.GlobalContext) ([]*mode
 	relations := make([]*model.DependencyRelation, 0)
 	// 1. 提取文件级别的基础关系 (Package, Import)
 	relations = append(relations, e.extractFileBaseRelations(fCtx, gCtx)...)
+
 	// 2. 提取定义级别的结构化关系 (Extend, Implement, Return, Parameter)
 	relations = append(relations, e.extractStructuralRelations(fCtx, gCtx)...)
 
@@ -60,23 +61,29 @@ func (e *Extractor) Extract(filePath string, gCtx *model.GlobalContext) ([]*mode
 
 func (e *Extractor) extractFileBaseRelations(fCtx *model.FileContext, gCtx *model.GlobalContext) []*model.DependencyRelation {
 	rels := make([]*model.DependencyRelation, 0)
-	fileElem := &model.CodeElement{
-		Kind: model.File, Name: filepath.Base(fCtx.FilePath), QualifiedName: fCtx.FilePath, Path: fCtx.FilePath,
-	}
 
-	// 处理 Package 包含 File
-	if fCtx.PackageName != "" {
-		pkgElem := &model.CodeElement{Kind: model.Package, Name: fCtx.PackageName, QualifiedName: fCtx.PackageName}
-		rels = append(rels, &model.DependencyRelation{Type: model.Contain, Source: pkgElem, Target: fileElem})
+	// 直接使用全局上下文中已有的 File 节点作为 Source
+	fileSource := &model.CodeElement{
+		Kind:          model.File,
+		Name:          filepath.Base(fCtx.FilePath),
+		QualifiedName: fCtx.FilePath,
+		Path:          fCtx.FilePath,
 	}
 
 	// 处理 Import 依赖
 	for _, imp := range fCtx.Imports {
+		// 对于通配符导入 (.*)，我们只关联到包本身
 		cleanPath := strings.TrimSuffix(imp.RawImportPath, ".*")
+
+		targetKind := imp.Kind
+		if imp.IsWildcard {
+			targetKind = model.Package
+		}
+
 		rels = append(rels, &model.DependencyRelation{
 			Type:   model.Import,
-			Source: fileElem,
-			Target: e.resolveTargetElement(cleanPath, imp.Kind, fCtx, gCtx),
+			Source: fileSource,
+			Target: e.resolveTargetElement(cleanPath, targetKind, fCtx, gCtx),
 		})
 	}
 	return rels

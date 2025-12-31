@@ -3,13 +3,33 @@ package output
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/CodMac/go-treesitter-dependency-analyzer/model"
 )
 
-// ExportMermaidHTML 生成包含 Mermaid.js 渲染逻辑的静态网页
+// safeID 清洗字符串，使其符合 Mermaid 的 ID 命名规范
+func safeID(id string) string {
+	r := strings.NewReplacer(
+		".", "_",
+		"(", "_",
+		")", "_",
+		"[", "_",
+		"]", "_",
+		" ", "_",
+		"-", "_",
+		"*", "all",
+		"/", "_",
+		"\\", "_",
+	)
+	return "n_" + r.Replace(id)
+}
+
+// isFineGrained 判断是否为细粒度节点（方法、字段等）
+func isFineGrained(kind model.ElementKind) bool {
+	return kind == model.Method || kind == model.Field || kind == model.Variable || kind == model.EnumConstant
+}
+
 func ExportMermaidHTML(outputPath string, gCtx *model.GlobalContext, rels []*model.DependencyRelation) error {
 	f, err := os.Create(outputPath)
 	if err != nil {
@@ -17,95 +37,86 @@ func ExportMermaidHTML(outputPath string, gCtx *model.GlobalContext, rels []*mod
 	}
 	defer f.Close()
 
-	// 1. 写入 HTML 模板头部
-	f.WriteString(`<!DOCTYPE html>
+	// 写入 HTML 头部和样式
+	fmt.Fprintln(f, `<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Codebase Dependency Map</title>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #f0f2f5; margin: 20px; }
-        .mermaid { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        h1 { color: #1a1a1a; text-align: center; }
-    </style>
+  <meta charset="UTF-8">
+  <title>Codebase Architecture Map</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <style>
+    body { font-family: sans-serif; background: #f4f7f6; padding: 20px; }
+    .mermaid { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+  </style>
 </head>
 <body>
-    <h1>Architecture Visualization</h1>
-    <div class="mermaid">
-    graph LR
-`)
+  <h1>Architecture Visualization</h1>
+  <div class="mermaid">
+  graph LR`)
 
-	// 2. 生成层级 Subgraphs
-	// 按 Package 分组
-	packageGroups := make(map[string][]*model.FileContext)
-	for _, fc := range gCtx.FileContexts {
-		packageGroups[fc.PackageName] = append(packageGroups[fc.PackageName], fc)
-	}
+	// 定义 Mermaid 节点样式
+	fmt.Fprintln(f, "  classDef pkg fill:#fff4dd,stroke:#d4a017,stroke-width:2px;")
+	fmt.Fprintln(f, "  classDef file fill:#e1f5fe,stroke:#01579b,stroke-width:1px;")
+	fmt.Fprintln(f, "  classDef clazz fill:#fff,stroke:#333,stroke-width:1px;")
 
-	for pkgName, fcs := range packageGroups {
-		hasPkg := pkgName != ""
-		if hasPkg {
-			fmt.Fprintf(f, "    subgraph \"📦 %s\"\n", pkgName)
-		}
-
-		for _, fc := range fcs {
-			// 文件作为更细一级的 subgraph
-			fmt.Fprintf(f, "        subgraph \"📄 %s\"\n", filepath.Base(fc.FilePath))
-			for _, entries := range fc.DefinitionsBySN {
-				for _, entry := range entries {
-					// 节点：ID["Name (Kind)"]
-					id := safeID(entry.Element.QualifiedName)
-					fmt.Fprintf(f, "            %s[\"%s <small>(%s)</small>\"]\n", id, entry.Element.Name, entry.Element.Kind)
+	// 1. 先声明所有的节点和层级 (过滤掉方法级)
+	// 我们遍历 GlobalContext 来构建结构，而不是依赖 rels
+	gCtx.RLock()
+	for _, fCtx := range gCtx.FileContexts {
+		fmt.Fprintf(f, "  subgraph %s [📄 %s]\n", safeID(fCtx.FilePath), fCtx.FilePath)
+		for _, entries := range fCtx.DefinitionsBySN {
+			for _, entry := range entries {
+				// 💡 过滤：只展示类、接口、枚举级别
+				if isFineGrained(entry.Element.Kind) {
+					continue
 				}
+				nodeID := safeID(entry.Element.QualifiedName)
+				label := fmt.Sprintf("%s <small>(%s)</small>", entry.Element.Name, entry.Element.Kind)
+				fmt.Fprintf(f, "    %s[\"%s\"]\n", nodeID, label)
+				fmt.Fprintf(f, "    class %s clazz\n", nodeID)
 			}
-			f.WriteString("        end\n")
 		}
-
-		if hasPkg {
-			f.WriteString("    end\n")
-		}
+		fmt.Fprintln(f, "  end")
+		fmt.Fprintf(f, "  class %s file\n", safeID(fCtx.FilePath))
 	}
+	gCtx.RUnlock()
 
-	// 3. 生成逻辑依赖关系
+	// 2. 导出逻辑关系 (过滤掉方法级依赖)
 	for _, rel := range rels {
+		// 跳过层级包含关系（已经通过 subgraph 展示了）
+		if rel.Type == "CONTAINS" {
+			continue
+		}
+
+		// 💡 过滤：如果 Source 或 Target 是方法/变量，则不显示这条线
+		if isFineGrained(rel.Source.Kind) || isFineGrained(rel.Target.Kind) {
+			continue
+		}
+
+		srcID := safeID(rel.Source.QualifiedName)
+		tgtID := safeID(rel.Target.QualifiedName)
+
+		// 避免指向自身的连线
+		if srcID == tgtID {
+			continue
+		}
+
 		arrow := "-->"
-		// 根据类型定制箭头样式
-		switch rel.Type {
-		case "INHERIT", "IMPLEMENT":
-			arrow = "==继承/实现==>"
-		case "IMPORT":
+		if rel.Type == model.Import {
 			arrow = "-.导入.->"
+		} else if rel.Type == model.Extend || rel.Type == model.Implement {
+			arrow = "==继承/实现==>"
 		}
 
-		fmt.Fprintf(f, "    %s %s %s\n",
-			safeID(rel.Source.QualifiedName),
-			arrow,
-			safeID(rel.Target.QualifiedName))
-		// 过滤掉包含关系，Mermaid 通过 subgraph 已经体现了层级
-		if rel.Type != "CONTAINS" {
-
-		}
+		fmt.Fprintf(f, "  %s %s %s\n", srcID, arrow, tgtID)
 	}
 
-	// 4. 写入脚本初始化和结尾
-	f.WriteString(`    </div>
-    <script>
-        mermaid.initialize({ 
-            startOnLoad: true, 
-            maxTextSize: 100000,
-            theme: 'default',
-            flowchart: { useMaxWidth: false, htmlLabels: true }
-        });
-    </script>
+	fmt.Fprintln(f, `  </div>
+  <script>
+    mermaid.initialize({ startOnLoad: true, maxTextSize: 90000, securityLevel: 'loose' });
+  </script>
 </body>
 </html>`)
 
 	return nil
-}
-
-// safeID 确保 QualifiedName 符合 Mermaid 的 ID 命名规范
-func safeID(id string) string {
-	r := strings.NewReplacer(".", "_", "/", "_", "-", "_", "\\", "_", ":", "_", "@", "_")
-	return "n_" + r.Replace(id)
 }

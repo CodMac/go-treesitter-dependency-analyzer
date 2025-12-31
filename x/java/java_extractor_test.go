@@ -70,22 +70,7 @@ func TestJavaExtractor_CallbackManager(t *testing.T) {
 	}
 	printRelations(relations)
 
-	// 4. 验证顶层 Package 与 File 关系 (新增功能)
-	t.Run("Verify Package and File Relations", func(t *testing.T) {
-		foundPkgFile := false
-		for _, rel := range relations {
-			if rel.Type == model.Contain &&
-				rel.Source.Kind == model.Package &&
-				rel.Source.Name == "com.example.service" &&
-				rel.Target.Kind == model.File {
-				foundPkgFile = true
-				break
-			}
-		}
-		assert.True(t, foundPkgFile, "Should find Package -> CONTAIN -> File relation")
-	})
-
-	// 5. 验证局部类 (Local Class) 的层级提取
+	// 4. 验证局部类 (Local Class) 的层级提取
 	t.Run("Verify Local Class Structure", func(t *testing.T) {
 		foundLocalClass := false
 		for _, rel := range relations {
@@ -102,7 +87,7 @@ func TestJavaExtractor_CallbackManager(t *testing.T) {
 		assert.True(t, foundLocalClass, "Should extract LocalValidator under register method")
 	})
 
-	// 6. 验证 JDK 内置符号解析 (JavaBuiltinTable)
+	// 5. 验证 JDK 内置符号解析 (JavaBuiltinTable)
 	t.Run("Verify JDK Builtin Resolution", func(t *testing.T) {
 		foundSystemOut := false
 		foundRunnableType := false
@@ -126,7 +111,7 @@ func TestJavaExtractor_CallbackManager(t *testing.T) {
 		assert.True(t, foundRunnableType, "Should resolve 'Runnable' to java.lang.Runnable")
 	})
 
-	// 7. 验证匿名内部类中的方法调用归属
+	// 6. 验证匿名内部类中的方法调用归属
 	t.Run("Verify Chained Call Resolution", func(t *testing.T) {
 		foundFullCall := false
 		for _, rel := range relations {

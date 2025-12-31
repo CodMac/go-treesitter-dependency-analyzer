@@ -88,18 +88,32 @@ func (gc *GlobalContext) RegisterFileContext(fc *FileContext) {
 
 	gc.FileContexts[fc.FilePath] = fc
 
-	// 1. 自动生成并注册 FILE 节点
+	// 1. 对于全局上下文来说，文件节点是唯一的，可以直接生成 File 节点
 	fileElem := &CodeElement{
 		Kind:          File,
 		Name:          filepath.Base(fc.FilePath),
 		QualifiedName: fc.FilePath, // 此时路径已归一化
 		Path:          fc.FilePath,
 	}
-	gc.DefinitionsByQN[fc.FilePath] = append(gc.DefinitionsByQN[fc.FilePath], &DefinitionEntry{
-		Element: fileElem,
-	})
+	gc.DefinitionsByQN[fc.FilePath] = []*DefinitionEntry{{Element: fileElem}}
 
-	// 2. 注册文件内的其他定义
+	// 2. 对于全局上下文来说，包名可能被多个文件声明，这里需保证其唯一
+	parts := strings.Split(fc.PackageName, ".")
+	var current []string
+	for _, part := range parts {
+		current = append(current, part)
+		pkgQN := strings.Join(current, ".")
+		if _, ok := gc.DefinitionsByQN[pkgQN]; !ok {
+			pkgElem := &CodeElement{
+				Kind:          Package,
+				Name:          part,
+				QualifiedName: pkgQN,
+			}
+			gc.DefinitionsByQN[pkgQN] = []*DefinitionEntry{{Element: pkgElem}}
+		}
+	}
+
+	// 3. 注册文件内的其他定义
 	for _, entries := range fc.DefinitionsBySN {
 		for _, entry := range entries {
 			qn := entry.Element.QualifiedName
@@ -108,8 +122,7 @@ func (gc *GlobalContext) RegisterFileContext(fc *FileContext) {
 	}
 }
 
-// ResolveSymbol 尝试解析一个标识符的具体定义。
-// 优先级：局部定义 > 精确导入 > 同包定义 > 通配符导入 > 绝对路径查找
+// ResolveSymbol 尝试解析一个标识符的具体定义。 优先级：局部定义 > 精确导入 > 同包定义 > 通配符导入 > 绝对路径查找
 func (gc *GlobalContext) ResolveSymbol(fc *FileContext, symbol string) []*DefinitionEntry {
 	gc.mutex.RLock()
 	defer gc.mutex.RUnlock()
@@ -156,25 +169,14 @@ func (gc *GlobalContext) ResolveSymbol(fc *FileContext, symbol string) []*Defini
 	return nil
 }
 
-// NormalizeElementPaths 将元素中的绝对路径转换为相对于 rootPath 的相对路径
-func (gc *GlobalContext) NormalizeElementPaths(elem *CodeElement, rootPath string) {
-	if elem == nil || rootPath == "" {
-		return
-	}
+// RLock 暴露全局上下文的读锁
+func (gc *GlobalContext) RLock() {
+	gc.mutex.RLock()
+}
 
-	// 1. 处理 Path 字段
-	if elem.Path != "" && filepath.IsAbs(elem.Path) {
-		if rel, err := filepath.Rel(rootPath, elem.Path); err == nil {
-			elem.Path = rel
-		}
-	}
-
-	// 2. 处理 FILE 类型的 QualifiedName (通常是全路径)
-	if elem.Kind == File && filepath.IsAbs(elem.QualifiedName) {
-		if rel, err := filepath.Rel(rootPath, elem.QualifiedName); err == nil {
-			elem.QualifiedName = rel
-		}
-	}
+// RUnlock 释放全局上下文的读锁
+func (gc *GlobalContext) RUnlock() {
+	gc.mutex.RUnlock()
 }
 
 // BuildQualifiedName 构建限定名称 (Qualified Name, QN)

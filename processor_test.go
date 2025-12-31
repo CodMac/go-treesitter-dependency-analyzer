@@ -2,77 +2,97 @@ package main_test
 
 import (
 	"context"
+	"github.com/CodMac/go-treesitter-dependency-analyzer/processor"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/CodMac/go-treesitter-dependency-analyzer/model"
-	"github.com/CodMac/go-treesitter-dependency-analyzer/processor"
-	_ "github.com/CodMac/go-treesitter-dependency-analyzer/x/java" // 确保注册 Java
+	_ "github.com/CodMac/go-treesitter-dependency-analyzer/x/java" // 确保注册了 Java 处理器
 )
 
-func TestFileProcessor_ProcessFiles_Java(t *testing.T) {
-	userPath := getTestFilePath("User.java")
-	servicePath := getTestFilePath("UserService.java")
-
-	filePaths := []string{userPath, servicePath}
-
-	// 1. 初始化处理器
-	proc := processor.NewFileProcessor(model.LangJava, true, true, 4)
-
-	// 2. 运行两阶段处理
-	ctx := context.Background()
-	relations, err := proc.ProcessFiles(ctx, filePaths)
-
+func TestFileProcessor_ProcessFiles(t *testing.T) {
+	// 1. 准备测试数据：创建临时项目结构
+	tmpDir, err := os.MkdirTemp("", "analyzer-test-*")
 	if err != nil {
-		t.Fatalf("Processor failed to process files: %v", err)
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// 文件 A: 定义 Base 类
+	fileA := filepath.Join(tmpDir, "Base.java")
+	codeA := `package com.test; public class Base { public void hello() {} }`
+
+	// 文件 B: 继承 Base 并调用
+	fileB := filepath.Join(tmpDir, "App.java")
+	codeB := `package com.test;
+       import com.test.Base;
+       public class App extends Base {
+         public void run() { new Base().hello(); }
+       }`
+
+	os.WriteFile(fileA, []byte(codeA), 0644)
+	os.WriteFile(fileB, []byte(codeB), 0644)
+
+	// 2. 初始化 Processor
+	fp := processor.NewFileProcessor(model.LangJava, false, false, 2)
+
+	// 3. 执行分析
+	filePaths := []string{fileA, fileB}
+	rels, gCtx, err := fp.ProcessFiles(context.Background(), tmpDir, filePaths)
+	if err != nil {
+		t.Fatalf("ProcessFiles failed: %v", err)
 	}
 
-	// 3. 验证结果
-	if len(relations) < 8 {
-		t.Errorf("Expected at least 8 dependency relations (2 imports, 1 create, 1 return, 1 throw, 2 calls, 1 parameter), got %d", len(relations))
-	}
-
-	// 预期关键关系检查
-	expectedRelations := map[model.DependencyType]map[string]bool{
-		model.Import: {"com.example.model.User": false, "java.util.List": false, "java.io.IOException": false},
-		model.Create: {"com.example.model.User": false}, // UserService.createNewUser 创建 User
-		model.Return: {"com.example.model.User": false}, // UserService.createNewUser 返回 User
-		model.Throw:  {"java.io.IOException": false},    // UserService.createNewUser 抛出 IOException
-		model.Call:   {"System.out.println": false},     // UserService.processUsers 调用
-	}
-
-	for _, rel := range relations {
-		if targets, ok := expectedRelations[rel.Type]; ok {
-			qn := rel.Target.QualifiedName
-			if rel.Type == model.Import {
-				// 对于 Import, QN 是完整的包/类名
-				if _, found := targets[qn]; found {
-					targets[qn] = true
+	// 4. 验证层级关系 (Stage 2 的产物)
+	t.Run("VerifyHierarchy", func(t *testing.T) {
+		hasPackage := false
+		hasFileInPkg := false
+		for _, rel := range rels {
+			if rel.Type == "CONTAINS" {
+				if rel.Source.Kind == model.Package && rel.Source.QualifiedName == "com.test" {
+					hasPackage = true
 				}
-			} else if rel.Type == model.Create && rel.Target.Name == "User" {
-				// CREATE 目标是 User 类
-				targets["com.example.model.User"] = true
-			} else if rel.Type == model.Return && rel.Target.Name == "User" {
-				targets["com.example.model.User"] = true
-			} else if rel.Type == model.Throw && rel.Target.Name == "IOException" {
-				targets["java.io.IOException"] = true
-			} else if rel.Type == model.Call && rel.Target.Name == "println" {
-				targets["System.out.println"] = true
+				// 检查包是否包含文件 (注意：由于 path 已经归一化，Target 应为相对路径)
+				if rel.Source.QualifiedName == "com.test" && rel.Target.Kind == model.File {
+					hasFileInPkg = true
+				}
 			}
 		}
-	}
+		if !hasPackage {
+			t.Error("Missing package 'com.test' in hierarchy")
+		}
+		if !hasFileInPkg {
+			t.Error("Missing Package -> File relationship")
+		}
+	})
 
-	// 最终验证所有关键关系是否都找到
-	allFound := true
-	for dtType, targets := range expectedRelations {
-		for target, found := range targets {
-			if !found {
-				t.Errorf("Missing expected dependency type %s to target %s", dtType, target)
-				allFound = false
+	// 5. 验证逻辑依赖关系 (Stage 3 的产物)
+	t.Run("VerifyLogicDependencies", func(t *testing.T) {
+		hasInherit := false
+		hasCall := false
+		for _, rel := range rels {
+			// 验证 App 继承 Base
+			if rel.Type == model.Extend && rel.Source.Name == "App" && rel.Target.Name == "Base" {
+				hasInherit = true
+			}
+			// 验证方法调用
+			if rel.Type == model.Call && rel.Target.Name == "hello" {
+				hasCall = true
 			}
 		}
-	}
+		if !hasInherit {
+			t.Error("Failed to detect inheritance: App extends Base")
+		}
+		if !hasCall {
+			t.Error("Failed to detect method call: hello()")
+		}
+	})
 
-	if allFound {
-		t.Logf("Successfully found all %d critical dependencies.", len(expectedRelations))
-	}
+	// 6. 验证全局上下文索引
+	t.Run("VerifyGlobalContext", func(t *testing.T) {
+		if _, ok := gCtx.DefinitionsByQN["com.test.Base"]; !ok {
+			t.Error("GlobalContext missing index for com.test.Base")
+		}
+	})
 }
