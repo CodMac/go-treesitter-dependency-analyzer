@@ -1252,12 +1252,11 @@ func TestJavaCollector_ModernRecord(t *testing.T) {
 
 // Lombok
 func TestJavaCollector_LombokSupport(t *testing.T) {
-	// 初始化
-	collector := java.NewJavaCollector()
-	parser := getJavaParser(t)
-
 	// --- Case A: @Data (Getter/Setter 注入) ---
 	t.Run("Verify Lombok @Data (User.java)", func(t *testing.T) {
+		// 1. 获取测试文件路径
+		collector := java.NewJavaCollector()
+		parser := getJavaParser(t)
 		filePath := getTestFilePath(filepath.Join("com", "example", "lombok", "User.java"))
 		rootNode, sourceBytes, _ := parser.ParseFile(filePath, true, true)
 		fCtx, _ := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
@@ -1279,6 +1278,8 @@ func TestJavaCollector_LombokSupport(t *testing.T) {
 
 	// --- Case B: @AllArgsConstructor (构造函数注入) ---
 	t.Run("Verify Lombok Constructors (Item.java)", func(t *testing.T) {
+		collector := java.NewJavaCollector()
+		parser := getJavaParser(t)
 		filePath := getTestFilePath(filepath.Join("com", "example", "lombok", "Item.java"))
 		rootNode, sourceBytes, _ := parser.ParseFile(filePath, true, true)
 		fCtx, _ := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
@@ -1302,6 +1303,8 @@ func TestJavaCollector_LombokSupport(t *testing.T) {
 
 	// --- Case C: @Builder (内部类与流式方法注入) ---
 	t.Run("Verify Lombok @Builder (Config.java)", func(t *testing.T) {
+		collector := java.NewJavaCollector()
+		parser := getJavaParser(t)
 		filePath := getTestFilePath(filepath.Join("com", "example", "lombok", "Config.java"))
 		rootNode, sourceBytes, _ := parser.ParseFile(filePath, true, true)
 		fCtx, _ := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
