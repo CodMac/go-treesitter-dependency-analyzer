@@ -351,7 +351,7 @@ func (c *Collector) extractElementBasic(node *sitter.Node, sourceBytes *[]byte, 
 }
 
 func (c *Collector) fillElementExtra(node *sitter.Node, elem *model.CodeElement, kind model.ElementKind, sourceBytes *[]byte) {
-	extra := &model.ElementExtra{}
+	extra := &model.Extra{}
 	modifiers, annotations := c.extractModifiersAndAnnotations(node, *sourceBytes)
 	extra.Modifiers = modifiers
 	extra.Annotations = annotations
@@ -375,7 +375,7 @@ func (c *Collector) fillElementExtra(node *sitter.Node, elem *model.CodeElement,
 	}
 }
 
-func (c *Collector) fillMethodExtra(node *sitter.Node, extra *model.ElementExtra, sourceBytes *[]byte) {
+func (c *Collector) fillMethodExtra(node *sitter.Node, extra *model.Extra, sourceBytes *[]byte) {
 	me := &model.MethodExtra{
 		IsConstructor: c.isConstructorKind(node.Kind()),
 	}
@@ -451,7 +451,7 @@ func (c *Collector) extractMethodSignature(node *sitter.Node, sourceBytes []byte
 	return strings.TrimSpace(sb.String())
 }
 
-func (c *Collector) fillFieldExtra(node *sitter.Node, extra *model.ElementExtra, modifiers []string, sourceBytes *[]byte) {
+func (c *Collector) fillFieldExtra(node *sitter.Node, extra *model.Extra, modifiers []string, sourceBytes *[]byte) {
 	fe := &model.FieldExtra{}
 	if tNode := node.ChildByFieldName("type"); tNode != nil {
 		fe.Type = c.getNodeContent(tNode, *sourceBytes)
@@ -466,7 +466,7 @@ func (c *Collector) fillFieldExtra(node *sitter.Node, extra *model.ElementExtra,
 	extra.FieldExtra = fe
 }
 
-func (c *Collector) fillClassExtra(node *sitter.Node, extra *model.ElementExtra, modifiers []string, sourceBytes *[]byte) {
+func (c *Collector) fillClassExtra(node *sitter.Node, extra *model.Extra, modifiers []string, sourceBytes *[]byte) {
 	ce := &model.ClassExtra{}
 	for _, m := range modifiers {
 		if m == "abstract" {
@@ -497,7 +497,7 @@ func (c *Collector) fillClassExtra(node *sitter.Node, extra *model.ElementExtra,
 	extra.ClassExtra = ce
 }
 
-func (c *Collector) fillEnumConstantExtra(node *sitter.Node, extra *model.ElementExtra, sourceBytes *[]byte) {
+func (c *Collector) fillEnumConstantExtra(node *sitter.Node, extra *model.Extra, sourceBytes *[]byte) {
 	argListNode := node.ChildByFieldName("arguments")
 	if argListNode == nil {
 		return

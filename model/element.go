@@ -38,19 +38,19 @@ type Location struct {
 
 // CodeElement 描述了源码中的一个可识别实体（Source 或 Target）
 type CodeElement struct {
-	Kind          ElementKind   `json:"Kind"`                   // Kind: 元素的类型 (e.g., FUNCTION, CLASS, VARIABLE)
-	Name          string        `json:"Name"`                   // Name: 元素的短名称 (e.g., "main", "CalculateSum")
-	QualifiedName string        `json:"QualifiedName"`          // QualifiedName: 元素的完整限定名称 (e.g., "pkg/util.Utility.CalculateSum")
-	Path          string        `json:"Path"`                   // Path: 元素所在的文件路径 (相对于项目根目录)
-	Signature     string        `json:"Signature,omitempty"`    // Signature: 元素的完整签名（针对函数/方法，包含参数和返回值类型）
-	Location      *Location     `json:"Location,omitempty"`     // Location: 元素的位置
-	Doc           string        `json:"Doc,omitempty"`          // Doc: 文档注释 (如 Javadoc, Go Doc)
-	Comment       string        `json:"Comment,omitempty"`      // Comment: 普通注释 (行/块注释)
-	Extra         *ElementExtra `json:"ElementExtra,omitempty"` // ElementExtra 额外信息
+	Kind          ElementKind `json:"Kind"`                // Kind: 元素的类型 (e.g., FUNCTION, CLASS, VARIABLE)
+	Name          string      `json:"Name"`                // Name: 元素的短名称 (e.g., "main", "CalculateSum")
+	QualifiedName string      `json:"QualifiedName"`       // QualifiedName: 元素的完整限定名称 (e.g., "pkg/util.Utility.CalculateSum")
+	Path          string      `json:"Path"`                // Path: 元素所在的文件路径 (相对于项目根目录)
+	Signature     string      `json:"Signature,omitempty"` // Signature: 元素的完整签名（针对函数/方法，包含参数和返回值类型）
+	Location      *Location   `json:"Location,omitempty"`  // Location: 元素的位置
+	Doc           string      `json:"Doc,omitempty"`       // Doc: 文档注释 (如 Javadoc, Go Doc)
+	Comment       string      `json:"Comment,omitempty"`   // Comment: 普通注释 (行/块注释)
+	Extra         *Extra      `json:"Extra,omitempty"`     // Extra 额外信息
 }
 
-// ElementExtra CodeElement的额外信息。包含了跨语言（如Java和Go）通用的关键元数据。
-type ElementExtra struct {
+// Extra CodeElement的额外信息。包含了跨语言（如Java和Go）通用的关键元数据。
+type Extra struct {
 	Modifiers   []string `json:"Modifiers,omitempty"`  // 修饰符列表 (e.g., "public", "private", "static", "final", "abstract")
 	Annotations []string `json:"Annotation,omitempty"` // 注解列表 (e.g., "@Service")
 

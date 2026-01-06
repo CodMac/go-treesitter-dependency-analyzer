@@ -4,6 +4,10 @@ import "strings"
 
 type NoiseFilter struct{}
 
+func NewJavaNoiseFilter() *NoiseFilter {
+	return &NoiseFilter{}
+}
+
 func (f *NoiseFilter) IsNoise(qn string) bool {
 	noisePrefixes := []string{
 		"java.", "javax.", "sun.", "com.sun.", "lombok.",

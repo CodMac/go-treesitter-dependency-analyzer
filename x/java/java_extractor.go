@@ -7,7 +7,6 @@ import (
 
 	"github.com/CodMac/go-treesitter-dependency-analyzer/context"
 	"github.com/CodMac/go-treesitter-dependency-analyzer/model"
-	"github.com/CodMac/go-treesitter-dependency-analyzer/parser"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -37,7 +36,7 @@ func (e *Extractor) Extract(filePath string, gCtx *context.GlobalContext) ([]*mo
 		return nil, fmt.Errorf("failed to get FileContext: %s", filePath)
 	}
 
-	tsLang, err := parser.GetLanguage(model.LangJava)
+	tsLang, err := model.GetLanguage(model.LangJava)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +321,7 @@ func (e *Extractor) resolveFromBuiltin(name string) *model.CodeElement {
 	if info, ok := BuiltinTable[name]; ok {
 		elem := &model.CodeElement{Kind: info.Kind, Name: name, QualifiedName: info.QN}
 		if info.Kind == model.Class || info.Kind == model.Interface || info.Kind == model.Enum || info.Kind == model.KAnnotation {
-			elem.Extra = &model.ElementExtra{ClassExtra: &model.ClassExtra{IsBuiltin: true}}
+			elem.Extra = &model.Extra{ClassExtra: &model.ClassExtra{IsBuiltin: true}}
 		}
 		return elem
 	}

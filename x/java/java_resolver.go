@@ -9,6 +9,10 @@ import (
 
 type SymbolResolver struct{}
 
+func NewJavaSymbolResolver() *SymbolResolver {
+	return &SymbolResolver{}
+}
+
 func (j *SymbolResolver) BuildQualifiedName(parentQN, name string) string {
 	if parentQN == "" || parentQN == "." {
 		return name

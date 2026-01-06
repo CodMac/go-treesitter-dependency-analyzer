@@ -21,22 +21,19 @@ type SymbolResolver interface {
 	RegisterPackage(gc *GlobalContext, packageName string)
 }
 
-// LanguageSymbolResolverFactory 是一个工厂函数类型，用于创建特定语言的 SymbolResolver 实例。
-type LanguageSymbolResolverFactory func() SymbolResolver
-
-var symbolResolverFactories = make(map[model.Language]LanguageSymbolResolverFactory)
+var symbolResolverMap = make(map[model.Language]SymbolResolver)
 
 // RegisterSymbolResolver 注册一个语言与其对应的 SymbolResolver 工厂函数。
-func RegisterSymbolResolver(lang model.Language, factory LanguageSymbolResolverFactory) {
-	symbolResolverFactories[lang] = factory
+func RegisterSymbolResolver(lang model.Language, resolver SymbolResolver) {
+	symbolResolverMap[lang] = resolver
 }
 
 // GetSymbolResolver 根据语言类型获取对应的 SymbolResolver 实例。
 func GetSymbolResolver(lang model.Language) (SymbolResolver, error) {
-	factory, ok := symbolResolverFactories[lang]
+	resolver, ok := symbolResolverMap[lang]
 	if !ok {
 		return nil, fmt.Errorf("no SymbolResolver for language: %s", lang)
 	}
 
-	return factory(), nil
+	return resolver, nil
 }

@@ -6,31 +6,19 @@ import (
 	"github.com/CodMac/go-treesitter-dependency-analyzer/extractor"
 	"github.com/CodMac/go-treesitter-dependency-analyzer/model"
 	"github.com/CodMac/go-treesitter-dependency-analyzer/noisefilter"
-	"github.com/CodMac/go-treesitter-dependency-analyzer/parser"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
 )
 
 func init() {
 	// 注册 Tree-sitter Java 语言对象
-	parser.RegisterLanguage(model.LangJava, sitter.NewLanguage(tree_sitter_java.Language()))
-
-	// 注册 Collector 工厂函数
-	collector.RegisterCollector(model.LangJava, func() collector.Collector {
-		return NewJavaCollector()
-	})
-	// 注册 Extractor 工厂函数
-	extractor.RegisterExtractor(model.LangJava, func() extractor.Extractor {
-		return NewJavaExtractor()
-	})
-
-	// 注册 噪音过滤器 工厂函数
-	noisefilter.RegisterNoiseFilter(model.LangJava, func() noisefilter.NoiseFilter {
-		return &NoiseFilter{}
-	})
-
-	// 注册 符号解析器  工厂函数
-	context.RegisterSymbolResolver(model.LangJava, func() context.SymbolResolver {
-		return &SymbolResolver{}
-	})
+	model.RegisterLanguage(model.LangJava, sitter.NewLanguage(tree_sitter_java.Language()))
+	// 注册 Collector
+	collector.RegisterCollector(model.LangJava, NewJavaCollector())
+	// 注册 Extractor
+	extractor.RegisterExtractor(model.LangJava, NewJavaExtractor())
+	// 注册 NoiseFilter(噪音过滤)
+	noisefilter.RegisterNoiseFilter(model.LangJava, NewJavaNoiseFilter())
+	// 注册 SymbolResolver(符号解析)
+	context.RegisterSymbolResolver(model.LangJava, NewJavaSymbolResolver())
 }

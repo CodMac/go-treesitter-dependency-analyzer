@@ -14,22 +14,19 @@ type Collector interface {
 	CollectDefinitions(rootNode *sitter.Node, filePath string, sourceBytes *[]byte) (*context.FileContext, error)
 }
 
-// LanguageCollectorFactory 是一个工厂函数类型，用于创建特定语言的 Collector 实例。
-type LanguageCollectorFactory func() Collector
+var collectorMap = make(map[model.Language]Collector)
 
-var collectorFactories = make(map[model.Language]LanguageCollectorFactory)
-
-// RegisterCollector 注册一个语言与其对应的 Collector 工厂函数。
-func RegisterCollector(lang model.Language, factory LanguageCollectorFactory) {
-	collectorFactories[lang] = factory
+// RegisterCollector 注册一个语言与其对应的 Collector
+func RegisterCollector(lang model.Language, collector Collector) {
+	collectorMap[lang] = collector
 }
 
 // GetCollector 根据语言类型获取对应的 Collector 实例。
 func GetCollector(lang model.Language) (Collector, error) {
-	factory, ok := collectorFactories[lang]
+	collector, ok := collectorMap[lang]
 	if !ok {
 		return nil, fmt.Errorf("no collector registered for language: %s", lang)
 	}
 
-	return factory(), nil
+	return collector, nil
 }

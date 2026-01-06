@@ -28,7 +28,7 @@ type TreeSitterParser struct {
 
 // NewParser 创建一个新的 TreeSitterParser 实例
 func NewParser(lang model.Language) (Parser, error) {
-	tsLang, err := GetLanguage(lang)
+	tsLang, err := model.GetLanguage(lang)
 	if err != nil {
 		return nil, err
 	}
