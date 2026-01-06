@@ -8,18 +8,18 @@ type ElementKind string
 const (
 	File         ElementKind = "FILE"          // 基本结构体          -> 对应源文件
 	Package      ElementKind = "PACKAGE"       // 基本结构体          -> 对应包        -> 适用 (Go, Java, C++)
-	Module       ElementKind = "MODULE"        // 结构化代码块      -> 对应模块       -> 适用 (Python, Rust)
-	Namespace    ElementKind = "NAMESPACE"     // 结构化代码块      -> 对应命名空间  -> 适用 (C++, C#)
+	Module       ElementKind = "MODULE"        // 结构化代码块      	-> 对应模块       -> 适用 (Python, Rust)
+	Namespace    ElementKind = "NAMESPACE"     // 结构化代码块      	-> 对应命名空间  	-> 适用 (C++, C#)
 	Class        ElementKind = "CLASS"         // 面向对象/复合类型    -> 对应类        -> 适用(Java, C++, Python, JS)
 	Interface    ElementKind = "INTERFACE"     // 面向对象/复合类型    -> 对应接口       -> 适用(Java, Go, TS)
-	Struct       ElementKind = "STRUCT"        // 面向对象/复合类型    -> 对应结构体   -> 适用(Go, C)
+	Struct       ElementKind = "STRUCT"        // 面向对象/复合类型    -> 对应结构体   	-> 适用(Go, C)
 	Enum         ElementKind = "ENUM"          // 面向对象/复合类型    -> 对应枚举       -> 适用(Java, C++, Rust)
 	EnumConstant ElementKind = "ENUM_CONSTANT" // 面向对象/复合类型    -> 对应枚举常量
 	KAnnotation  ElementKind = "ANNOTATION"    // 面向对象/复合类型    -> 对应注解
 	Trait        ElementKind = "TRAIT"         // 面向对象/复合类型    -> 对应特质       -> 适用接口 (Rust, Scala)
-	Function     ElementKind = "FUNCTION"      // 可执行体       -> 对应独立函数  -> 适用(C, Go, JS)
-	Method       ElementKind = "METHOD"        // 可执行体       -> 对应类/结构体的方法
-	Macro        ElementKind = "MACRO"         // 可执行体       -> 对应预处理器宏     -> 适用(C/C++)
+	Function     ElementKind = "FUNCTION"      // 可执行体       	-> 对应独立函数  	-> 适用(C, Go, JS)
+	Method       ElementKind = "METHOD"        // 可执行体       	-> 对应类/结构体的方法
+	Macro        ElementKind = "MACRO"         // 可执行体       	-> 对应预处理器宏     -> 适用(C/C++)
 	Variable     ElementKind = "VARIABLE"      // 存储和声明          -> 对应局部/全局变量
 	Constant     ElementKind = "CONSTANT"      // 存储和声明          -> 对应常量
 	Field        ElementKind = "FIELD"         // 存储和声明          -> 对应类/结构体/枚举的成员或字段 -> 适用(Java, Go, C++)

@@ -46,8 +46,6 @@ type CodeElement struct {
 
 ### 2. DependencyRelation (依赖关系)
 
-在分析器中，`CodeElement` 是图论中的**顶点**，而 `DependencyRelation` 则是带权的有向**边**，记录了发起方（Source）与目标方（Target）的精确语义关联。
-
 ```go
 type DependencyRelation struct {
     Type     RelationType // 关系类型 (如 CALL, EXTEND)
@@ -75,37 +73,87 @@ type DependencyRelation struct {
 
 ---
 
-## 🛠️ 语言特性支持
+## 🚀 快速开始
 
-### Java 特性 (Current)
+本项目依赖 [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) 的 C 库绑定，因此在编译和运行时需要启用 CGO。
 
-* **现代语法**: 深度支持 **Java 17+ Record**（自动生成隐式访问器、解析紧凑构造函数）。
-* **符号消歧**: 自动处理 `java.lang` 隐式导入、`static` 导入及 `.*` 通配符导入。
-* **继承链解析**: 递归搜索父类/接口，精准定位 `this.xxx` 或 `super.yyy` 成员的真实来源。
-* **内置过滤**: 内置 `NoiseFilter`，自动屏蔽 JDK 内部噪音（`sun.*`）及常用工具（`lombok`, `slf4j`）。
+### 1. 编译 (Build)
+
+在项目根目录下执行以下命令生成二进制文件：
+
+```bash
+# 必须设置 CGO_ENABLED=1
+export CGO_ENABLED=1
+go build -o deps-analyzer main.go
+
+```
+
+### 2. 基础使用 (Usage)
+
+编译完成后，你可以通过命令行参数指定分析目标。
+
+#### 导出分析数据 (JSONL)
+
+默认情况下，工具会生成两个文件：`element.jsonl`（包含所有定义的符号）和 `relation.jsonl`（包含所有依赖关系）。
+
+```bash
+./deps-analyzer -lang java -path /your/project/src -out-dir ./output
+
+```
+
+#### 生成可视化图谱 (Mermaid)
+
+如果你想直接查看代码结构图，可以使用 `-format mermaid` 参数，它会生成一个可以直接在浏览器中打开的 `visualization.html`。
+
+```bash
+./deps-analyzer -lang java -path /your/project/src -format mermaid
+
+```
+
+### 3. 命令行参数说明
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-lang` | `java` | 指定分析的语言（目前支持 `java`，`go` 开发中） |
+| `-path` | `.` | 待分析的源代码项目根目录 |
+| `-out-dir` | `./output` | 结果输出目录 |
+| `-format` | `jsonl` | 输出格式：`jsonl` (数据挖掘用) 或 `mermaid` (可视化用) |
+| `-jobs` | `4` | 并发解析的工作线程数 |
+| `-filter` | `""` | 文件过滤正则表达式（可选） |
 
 ---
 
-## 🚀 快速开始
+## 🗺️ 路线图 (Roadmap)
 
-### 1. 引入与初始化
+本项目采用分阶段演进策略，旨在从当前的 Java 深度支持扩展为全语言的代码分析引擎。
 
-```go
-import (
-    "github.com/CodMac/go-treesitter-dependency-analyzer/processor"
-    "github.com/CodMac/go-treesitter-dependency-analyzer/model"
-    _ "github.com/CodMac/go-treesitter-dependency-analyzer/x/java" // 显式注册 Java 插件
-)
+### 1. 核心引擎路标 (Core Engine)
 
-func main() {
-    // 创建处理器：指定语言、是否导出并格式化AST、并发数
-    fp := processor.NewFileProcessor(model.LangJava, true, true, 8)
+* [x] **插件化架构设计**: 实现基于 `Collector`, `Extractor`, `SymbolResolver` 的多语言扩展接口。
+* [x] **三阶段处理流水线**: 完成“符号收集 -> 层次补全 -> 关系提取”的高效处理流程。
+* [x] **并发扫描引擎**: 支持基于 `Worker Pool` 的多核并发解析，显著提升处理速度。
+* [x] **多格式导出器**: 已支持 `JSONL` 原生数据与 `Mermaid` 可视化 HTML 导出。
+* [ ] **性能监控与缓存**: 引入符号解析 LRU 缓存，并针对万级文件规模进行锁粒度优化。
 
-    // 执行分析：传入项目根目录及目标文件列表
-    rels, gCtx, err := fp.ProcessFiles("./my-project", files)
-}
+### 2. Java 语言路标 (Java Extension)
 
-```
+* [x] **基础定义收集**: 完成类、接口、枚举、方法、字段及其 Modifiers/Annotations 的提取。
+* [x] **复杂符号解析**: 实现基于同包查找、精确导入及 `.*` 通配符导入的符号消歧算法。
+* [x] **Java 17+ Record 支持**: 深度适配 Record 语法，自动关联隐式访问器。
+* [x] **内置符号表**: 已集成 `java.lang` 常用类及核心 API 的内置索引。
+* [ ] **链式调用类型推导**: 解决 `a.getB().getC()` 形式的调用追踪，提升 CALL 关系的解析精度。
+* [ ] **匿名块 QN 生成**: 为 Lambda 表达式与匿名内部类分配唯一 QN，补全函数式编程依赖。
+
+### 3. 多语言横向扩展 (Language Expansion)
+
+* [ ] **🐹 Go 语言支持** (进行中):
+* [x] 基础语法定义收集。
+* [ ] 适配“同目录即同包”的符号可见性逻辑。
+* [ ] 结构体嵌入（Embedding）与接口隐式实现解析。
+
+
+* [ ] **🐍 Python 支持** (规划中): 处理相对路径导入及轻量级启发式类型推导。
+* [ ] **🕸️ JavaScript/TypeScript** (规划中): 基于 ESM/CommonJS 模块系统的关系提取。
 
 ---
 
