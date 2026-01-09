@@ -28,7 +28,7 @@ type FileContext struct {
 	RootNode        *sitter.Node
 	SourceBytes     *[]byte
 	DefinitionsBySN map[string][]*DefinitionEntry
-	Imports         map[string]*ImportEntry
+	Imports         map[string][]*ImportEntry
 	mutex           sync.RWMutex
 }
 
@@ -38,7 +38,7 @@ func NewFileContext(filePath string, rootNode *sitter.Node, sourceBytes *[]byte)
 		RootNode:        rootNode,
 		SourceBytes:     sourceBytes,
 		DefinitionsBySN: make(map[string][]*DefinitionEntry),
-		Imports:         make(map[string]*ImportEntry),
+		Imports:         make(map[string][]*ImportEntry),
 	}
 }
 
@@ -52,7 +52,7 @@ func (fc *FileContext) AddDefinition(elem *model.CodeElement, parentQN string, n
 func (fc *FileContext) AddImport(alias string, imp *ImportEntry) {
 	fc.mutex.Lock()
 	defer fc.mutex.Unlock()
-	fc.Imports[alias] = imp
+	fc.Imports[alias] = append(fc.Imports[alias], imp)
 }
 
 // --- 核心修改：GlobalContext 抽象化 ---

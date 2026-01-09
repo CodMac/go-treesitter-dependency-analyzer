@@ -44,9 +44,11 @@ func (j *SymbolResolver) Resolve(gc *core.GlobalContext, fc *core.FileContext, s
 	}
 
 	// 2. 精确导入
-	if imp, ok := fc.Imports[symbol]; ok {
-		if defs, found := gc.DefinitionsByQN[imp.RawImportPath]; found {
-			return defs
+	if imps, ok := fc.Imports[symbol]; ok {
+		for _, imp := range imps {
+			if defs, found := gc.DefinitionsByQN[imp.RawImportPath]; found {
+				return defs
+			}
 		}
 	}
 
@@ -57,11 +59,13 @@ func (j *SymbolResolver) Resolve(gc *core.GlobalContext, fc *core.FileContext, s
 	}
 
 	// 4. Java 特有的通配符导入
-	for _, imp := range fc.Imports {
-		if imp.IsWildcard {
-			basePath := strings.TrimSuffix(imp.RawImportPath, "*")
-			if defs, ok := gc.DefinitionsByQN[basePath+symbol]; ok {
-				return defs
+	for _, imps := range fc.Imports {
+		for _, imp := range imps {
+			if imp.IsWildcard {
+				basePath := strings.TrimSuffix(imp.RawImportPath, "*")
+				if defs, ok := gc.DefinitionsByQN[basePath+symbol]; ok {
+					return defs
+				}
 			}
 		}
 	}
