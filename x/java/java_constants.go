@@ -1,24 +1,20 @@
 package java
 
 const (
-	// Method
-	KeyIsConstructor   = "java.method.is_constructor"
-	KeyFullSignatureQN = "java.method.full_signature_qn"
-	KeyReturnType      = "java.method.return_type"
-	KeyParameters      = "java.method.parameters"
-	KeyThrowsTypes     = "java.method.throws_types"
-
-	// Class/Interface/Enum
-	KeySuperClass            = "java.class.super_class"
-	KeyImplementedInterfaces = "java.class.implemented_interfaces"
-	KeyIsAbstract            = "java.class.is_abstract"
-	KeyIsFinal               = "java.class.is_final"
-
-	// Field/Variable
-	KeyType       = "java.field.type"
-	KeyIsConstant = "java.field.is_constant"
-	KeyIsParam    = "java.field.is_param"
-
-	// EnumConstant
-	KeyEnumArguments = "java.enum.arguments"
+	MethodIsConstructor            = "java.method.is_constructor"
+	MethodFullSignatureQN          = "java.method.full_signature_qn"
+	MethodReturnType               = "java.method.return_type"
+	MethodParameters               = "java.method.parameters"
+	MethodThrowsTypes              = "java.method.throws_types"
+	ClassSuperClass                = "java.class.super_class"
+	ClassImplementedInterfaces     = "java.class.implemented_interfaces"
+	ClassIsAbstract                = "java.class.is_abstract"
+	ClassIsFinal                   = "java.class.is_final"
+	InterfaceImplementedInterfaces = "java.interface.implemented_interfaces"
+	FieldType                      = "java.field.type"
+	FieldIsConstant                = "java.field.is_constant"
+	FieldIsParam                   = "java.field.is_param"
+	VariableType                   = "java.variable.type"
+	VariableIsFinal                = "java.variable.is_final"
+	EnumArguments                  = "java.enum.arguments"
 )

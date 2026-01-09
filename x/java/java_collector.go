@@ -179,28 +179,29 @@ func (c *Collector) enrichMetadata(fCtx *core.FileContext) {
 
 			switch elem.Kind {
 			case model.Method:
-				extra.Mores[KeyIsConstructor] = (node.Kind() == "constructor_declaration")
+				extra.Mores[MethodIsConstructor] = node.Kind() == "constructor_declaration"
 				retType := ""
 				if tNode := node.ChildByFieldName("type"); tNode != nil {
 					retType = c.getNodeContent(tNode, *fCtx.SourceBytes)
-					extra.Mores[KeyReturnType] = retType
+					extra.Mores[MethodReturnType] = retType
 				}
 				params := c.extractParameterWithNames(node, fCtx.SourceBytes)
-				extra.Mores[KeyFullSignatureQN] = elem.Name + params
-				// 填充通用 Signature
+				extra.Mores[MethodFullSignatureQN] = elem.Name + params
 				elem.Signature = fmt.Sprintf("%s %s%s", retType, elem.Name, params)
 
-			case model.Class, model.Interface, model.Enum:
-				extra.Mores[KeyIsAbstract] = c.contains(mods, "abstract")
-				extra.Mores[KeyIsFinal] = c.contains(mods, "final")
-				// 通用 Signature
-				elem.Signature = strings.Join(mods, " ") + " " + string(elem.Kind) + " " + elem.Name
-
+			case model.Class:
+				extra.Mores[ClassIsAbstract] = c.contains(mods, "abstract")
+				extra.Mores[ClassIsFinal] = c.contains(mods, "final")
+				elem.Signature = strings.Join(mods, " ") + " class " + elem.Name
+			case model.Interface:
+				elem.Signature = strings.Join(mods, " ") + " interface " + elem.Name
+			case model.Enum:
+				elem.Signature = strings.Join(mods, " ") + " interface " + elem.Name
 			case model.Field, model.Variable:
 				fType := ""
 				if tNode := node.ChildByFieldName("type"); tNode != nil {
 					fType = c.getNodeContent(tNode, *fCtx.SourceBytes)
-					extra.Mores[KeyType] = fType
+					extra.Mores[FieldType] = fType
 				}
 				elem.Signature = fType + " " + elem.Name
 			}
