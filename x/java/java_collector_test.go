@@ -49,7 +49,7 @@ func TestJavaCollector_AbstractBaseEntity(t *testing.T) {
 	filePath := getTestFilePath(filepath.Join("com", "example", "base", "AbstractBaseEntity.java"))
 
 	// 2. 解析源码
-	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, true, true)
+	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, false, true)
 	if err != nil {
 		t.Fatalf("Failed to parse file: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestJavaCollector_BaseClassHierarchy(t *testing.T) {
 	filePath := getTestFilePath(filepath.Join("com", "example", "base", "BaseClass.java"))
 
 	// 2. 解析与收集
-	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, true, true)
+	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, false, true)
 	if err != nil {
 		t.Fatalf("Failed to parse file: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 	filePath := getTestFilePath(filepath.Join("com", "example", "base", "CallbackManager.java"))
 
 	// 2. 解析源码与运行 Collector
-	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, true, true)
+	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, false, true)
 	if err != nil {
 		t.Fatalf("Failed to parse file: %v", err)
 	}
@@ -374,6 +374,193 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 		elem := runDefs[0].Element
 		if !contains(elem.Extra.Annotations, "@Override") {
 			t.Error("Method run() missing @Override")
+		}
+	})
+}
+
+func TestJavaCollector_ConfigService(t *testing.T) {
+	// 1. 获取测试文件路径
+	filePath := getTestFilePath(filepath.Join("com", "example", "base", "ConfigService.java"))
+
+	// 2. 解析源码与运行 Collector
+	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, false, false)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	collector := java.NewJavaCollector()
+	fCtx, err := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
+	if err != nil {
+		t.Fatalf("CollectDefinitions failed: %v", err)
+	}
+
+	printCodeElements(fCtx)
+
+	// 验证 1: 变长参数 (Object...) 与 数组参数 (String[])
+	t.Run("Verify Variadic and Array Parameters", func(t *testing.T) {
+		// 注意：QN 内部的参数类型应反映原始定义
+		qn := "com.example.base.ConfigService.updateConfigs(String[],Object...)"
+		defs := findDefinitionsByQN(fCtx, qn)
+		if len(defs) == 0 {
+			t.Fatalf("Method updateConfigs not found with expected signature QN: %s", qn)
+		}
+
+		elem := defs[0].Element
+		params, ok := elem.Extra.Mores[java.MethodParameters].([]string)
+		if !ok || len(params) != 2 {
+			t.Fatalf("Expected 2 parameters, got %v", params)
+		}
+
+		// 验证数组参数
+		if !strings.Contains(params[0], "String[]") {
+			t.Errorf("Expected first param to be String[], got %s", params[0])
+		}
+
+		// 验证变长参数
+		if !strings.Contains(params[1], "Object...") {
+			t.Errorf("Expected second param to be Object..., got %s", params[1])
+		}
+	})
+
+	// 验证 2: 复杂多属性注解
+	t.Run("Verify Complex Annotations", func(t *testing.T) {
+		qn := "com.example.base.ConfigService.legacyMethod()"
+		defs := findDefinitionsByQN(fCtx, qn)
+		if len(defs) == 0 {
+			t.Fatalf("Method legacyMethod not found")
+		}
+
+		elem := defs[0].Element
+		annos := elem.Extra.Annotations
+
+		// 验证 @SuppressWarnings 的数组格式
+		foundSuppressed := false
+		for _, a := range annos {
+			if strings.Contains(a, "@SuppressWarnings") && strings.Contains(a, "\"unchecked\"") && strings.Contains(a, "\"rawtypes\"") {
+				foundSuppressed = true
+				break
+			}
+		}
+		if !foundSuppressed {
+			t.Errorf("Could not find complete @SuppressWarnings annotation, got: %v", annos)
+		}
+
+		// 验证 @Deprecated 的多属性 (since, forRemoval)
+		foundDeprecated := false
+		for _, a := range annos {
+			if strings.Contains(a, "@Deprecated") && strings.Contains(a, "since = \"1.2\"") && strings.Contains(a, "forRemoval = true") {
+				foundDeprecated = true
+				break
+			}
+		}
+		if !foundDeprecated {
+			t.Errorf("Could not find detailed @Deprecated annotation, got: %v", annos)
+		}
+	})
+
+	t.Run("Verify Specific Parameters", func(t *testing.T) {
+		// 验证 keys
+		keysQN := "com.example.base.ConfigService.updateConfigs(String[],Object...).keys"
+		if len(findDefinitionsByQN(fCtx, keysQN)) == 0 {
+			t.Errorf("Variable 'keys' not found")
+		}
+
+		// 验证 values
+		valuesQN := "com.example.base.ConfigService.updateConfigs(String[],Object...).values"
+		vDefs := findDefinitionsByQN(fCtx, valuesQN)
+		if len(vDefs) == 0 {
+			t.Fatalf("Variable 'values' not found")
+		}
+
+		vElem := vDefs[0].Element
+		if tpe := vElem.Extra.Mores[java.VariableType]; tpe != "Object..." {
+			t.Errorf("Expected type Object..., got %v", tpe)
+		}
+	})
+}
+
+func TestJavaCollector_DataProcessor(t *testing.T) {
+	// 1. 获取测试文件路径
+	filePath := getTestFilePath(filepath.Join("com", "example", "base", "DataProcessor.java"))
+
+	// 2. 解析源码与运行 Collector
+	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, false, false)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	collector := java.NewJavaCollector()
+	fCtx, err := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
+	if err != nil {
+		t.Fatalf("CollectDefinitions failed: %v", err)
+	}
+
+	printCodeElements(fCtx)
+
+	// 验证 1: 接口定义、多继承与泛型
+	t.Run("Verify Interface Heritage and Generics", func(t *testing.T) {
+		qn := "com.example.base.DataProcessor"
+		defs := findDefinitionsByQN(fCtx, qn)
+		if len(defs) == 0 {
+			t.Fatalf("Interface DataProcessor not found")
+		}
+
+		elem := defs[0].Element
+		// 验证接口继承
+		ifaces, _ := elem.Extra.Mores[java.InterfaceImplementedInterfaces].([]string)
+		expectedIfaces := []string{"Runnable", "AutoCloseable"}
+		for _, expected := range expectedIfaces {
+			if !contains(ifaces, expected) {
+				t.Errorf("Expected interface %s not found in %v", expected, ifaces)
+			}
+		}
+
+		// 验证签名中的泛型参数 (T extends AbstractBaseEntity<?>)
+		if !strings.Contains(elem.Signature, "<T extends AbstractBaseEntity<?>>") {
+			t.Errorf("Signature missing generics: %s", elem.Signature)
+		}
+	})
+
+	// 验证 2: 方法的 Throws 异常
+	t.Run("Verify Method Throws", func(t *testing.T) {
+		// 注意：泛型 T 在 QN 中按原样提取
+		qn := "com.example.base.DataProcessor.processAll(String)"
+		defs := findDefinitionsByQN(fCtx, qn)
+		if len(defs) == 0 {
+			t.Fatalf("Method processAll not found")
+		}
+
+		elem := defs[0].Element
+		throws, _ := elem.Extra.Mores[java.MethodThrowsTypes].([]string)
+
+		expectedThrows := []string{"RuntimeException", "Exception"}
+		if len(throws) != 2 {
+			t.Fatalf("Expected 2 throws types, got %v", throws)
+		}
+		for i, e := range expectedThrows {
+			if throws[i] != e {
+				t.Errorf("Expected throw %s, got %s", e, throws[i])
+			}
+		}
+	})
+
+	// 验证 3: Java 8 Default 方法修饰符
+	t.Run("Verify Default Method", func(t *testing.T) {
+		qn := "com.example.base.DataProcessor.stop()"
+		defs := findDefinitionsByQN(fCtx, qn)
+		if len(defs) == 0 {
+			t.Fatalf("Method stop not found")
+		}
+
+		elem := defs[0].Element
+		// 验证是否包含 default 关键字
+		if !contains(elem.Extra.Modifiers, "default") {
+			t.Errorf("Method stop should have 'default' modifier, got %v", elem.Extra.Modifiers)
+		}
+
+		// 验证 Signature 是否正确包含 default
+		if !strings.HasPrefix(elem.Signature, "default void stop()") {
+			t.Errorf("Signature prefix incorrect: %s", elem.Signature)
 		}
 	})
 }
