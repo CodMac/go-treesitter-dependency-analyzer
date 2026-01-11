@@ -39,8 +39,6 @@ func (c *Collector) CollectDefinitions(rootNode *sitter.Node, filePath string, s
 	return fCtx, nil
 }
 
-// --- 第一阶段：定义识别与层级构建 ---
-
 func (c *Collector) processTopLevelDeclarations(fCtx *core.FileContext) {
 	for i := 0; i < int(fCtx.RootNode.ChildCount()); i++ {
 		child := fCtx.RootNode.Child(uint(i))
@@ -104,15 +102,31 @@ func (c *Collector) identifyElement(node *sitter.Node, fCtx *core.FileContext, p
 		name = c.extractVariableName(node, fCtx.SourceBytes)
 	case "lambda_expression":
 		kind, name = model.Lambda, "lambda"
+	case "static_initializer":
+		kind = model.ScopeBlock
+		name = "$static"
 	case "block":
-		kind, name = model.ScopeBlock, "block"
+		parent := node.Parent()
+		if parent == nil {
+			return nil, ""
+		}
+		pKind := parent.Kind()
+		if pKind == "class_body" {
+			kind = model.ScopeBlock
+			name = "$instance"
+		} else if pKind == "method_declaration" || pKind == "constructor_declaration" || pKind == "static_initializer" {
+			// 透明化处理
+			return nil, ""
+		} else {
+			kind = model.ScopeBlock
+			name = "block"
+		}
 	case "object_creation_expression":
 		if c.findNamedChildOfType(node, "class_body") != nil {
 			kind, name = model.AnonymousClass, "anonymousClass"
 		}
 	}
 
-	// 兜底：处理那些没有显式 field name 的标识符
 	if kind != "" && name == "" {
 		name = c.resolveMissingName(node, kind, parentQN, fCtx.SourceBytes)
 	}
@@ -163,11 +177,19 @@ func (c *Collector) processMetadataForEntry(entry *core.DefinitionEntry, fCtx *c
 		if args := node.ChildByFieldName("arguments"); args != nil {
 			extra.Mores[EnumArguments] = c.getNodeContent(args, *fCtx.SourceBytes)
 		}
+	case model.ScopeBlock:
+		isStaticBlock := (node.Kind() == "static_initializer")
+		extra.Mores[BlockIsStatic] = isStaticBlock
+		prefix := ""
+		if isStaticBlock {
+			prefix = "static "
+		}
+		elem.Signature = prefix + "{...}"
 	}
 	elem.Extra = extra
 }
 
-// --- 专项提取逻辑 (Helper Methods) ---
+// --- 专项提取逻辑 ---
 
 func (c *Collector) fillMethodMetadata(elem *model.CodeElement, node *sitter.Node, extra *model.Extra, mods []string, fCtx *core.FileContext) {
 	extra.Mores[MethodIsConstructor] = (node.Kind() == "constructor_declaration")
@@ -208,15 +230,12 @@ func (c *Collector) fillTypeMetadata(elem *model.CodeElement, node *sitter.Node,
 	extra.Mores[ClassIsFinal] = isFinal
 
 	heritage := ""
-	// 1. 处理 Class 的 extends (通常有 Field Name)
 	if super := node.ChildByFieldName("superclass"); super != nil {
 		content := c.getNodeContent(super, *fCtx.SourceBytes)
 		extra.Mores[ClassSuperClass] = strings.TrimPrefix(content, "extends ")
 		heritage += " " + content
 	}
 
-	// 2. 核心修正：寻找接口列表节点
-	// 依次尝试：Field(interfaces) -> Field(extends_interfaces) -> Kind(interfaces) -> Kind(extends_interfaces)
 	var ifacesNode *sitter.Node
 	if n := node.ChildByFieldName("interfaces"); n != nil {
 		ifacesNode = n
@@ -240,7 +259,6 @@ func (c *Collector) fillTypeMetadata(elem *model.CodeElement, node *sitter.Node,
 		}
 	}
 
-	// 3. 泛型参数处理
 	typeParams := ""
 	if tpNode := node.ChildByFieldName("type_parameters"); tpNode != nil {
 		typeParams = c.getNodeContent(tpNode, *fCtx.SourceBytes)
@@ -248,27 +266,6 @@ func (c *Collector) fillTypeMetadata(elem *model.CodeElement, node *sitter.Node,
 
 	displayKind := strings.Replace(node.Kind(), "_declaration", "", 1)
 	elem.Signature = strings.TrimSpace(fmt.Sprintf("%s %s %s%s%s", strings.Join(mods, " "), displayKind, elem.Name, typeParams, heritage))
-}
-
-func (c *Collector) determineVariableKind(kindStr string) model.ElementKind {
-	if kindStr == "local_variable_declaration" {
-		return model.Variable
-	}
-	return model.Field
-}
-
-func (c *Collector) applyUniqueQN(elem *model.CodeElement, node *sitter.Node, parentQN string, occurrences map[string]int, src *[]byte) {
-	identity := elem.Name
-	if elem.Kind == model.Method {
-		identity += c.extractParameterTypesOnly(node, src)
-	}
-	occurrences[identity]++
-	count := occurrences[identity]
-
-	if elem.Kind == model.AnonymousClass || elem.Kind == model.Lambda || elem.Kind == model.ScopeBlock || count > 1 {
-		identity = fmt.Sprintf("%s$%d", identity, count)
-	}
-	elem.QualifiedName = c.resolver.BuildQualifiedName(parentQN, identity)
 }
 
 // --- 提取相关函数 ---
@@ -318,10 +315,59 @@ func (c *Collector) handleImport(node *sitter.Node, fCtx *core.FileContext) {
 	fCtx.AddImport(alias, entry)
 }
 
+func (c *Collector) extractTypeString(node *sitter.Node, src *[]byte) string {
+	// 针对 formal_parameter 尝试通过 field name 寻找
+	if tNode := node.ChildByFieldName("type"); tNode != nil {
+		return c.getNodeContent(tNode, *src)
+	}
+
+	// 针对 spread_parameter (Object... values) 的特殊处理
+	// 在 Java AST 中，spread_parameter 的结构通常包含一个 type 节点和 ... 符号
+	if node.Kind() == "spread_parameter" {
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(uint(i))
+			if strings.Contains(child.Kind(), "type") {
+				return c.getNodeContent(child, *src) + "..."
+			}
+		}
+	}
+	return "unknown"
+}
+
+func (c *Collector) extractParameterTypesOnly(node *sitter.Node, src *[]byte) string {
+	pNode := node.ChildByFieldName("parameters")
+	if pNode == nil {
+		return "()"
+	}
+
+	var types []string
+	for i := 0; i < int(pNode.NamedChildCount()); i++ {
+		param := pNode.NamedChild(uint(i))
+		tStr := c.extractTypeString(param, src) // 统一调用 extractTypeString
+
+		// 去掉泛型，只保留基础类型名用于 QN 匹配
+		tStr = strings.Split(tStr, "<")[0]
+		types = append(types, strings.TrimSpace(tStr))
+	}
+	return "(" + strings.Join(types, ",") + ")"
+}
+
+func (c *Collector) extractVariableName(node *sitter.Node, src *[]byte) string {
+	if nNode := node.ChildByFieldName("name"); nNode != nil {
+		return c.getNodeContent(nNode, *src)
+	}
+	// 处理变数定义中的 declarator
+	if vd := c.findNamedChildOfType(node, "variable_declarator"); vd != nil {
+		if nNode := vd.ChildByFieldName("name"); nNode != nil {
+			return c.getNodeContent(nNode, *src)
+		}
+	}
+	return ""
+}
+
 func (c *Collector) extractModifiersAndAnnotations(n *sitter.Node, src []byte) ([]string, []string) {
 	var mods, annos []string
 	mNode := n.ChildByFieldName("modifiers")
-	// 部分 Java 节点 modifiers 可能不是 Field
 	if mNode == nil {
 		mNode = c.findNamedChildOfType(n, "modifiers")
 	}
@@ -342,12 +388,9 @@ func (c *Collector) extractModifiersAndAnnotations(n *sitter.Node, src []byte) (
 
 func (c *Collector) extractComments(node *sitter.Node, src *[]byte) (doc string, comment string) {
 	curr := node
-	// 如果是 variable_declarator，注释通常在父节点 field_declaration 上
 	if node.Kind() == "variable_declarator" && node.Parent() != nil {
 		curr = node.Parent()
 	}
-
-	// 尝试寻找紧邻的前一个兄弟节点是否是注释
 	prev := curr.PrevSibling()
 	for prev != nil {
 		if prev.Kind() == "block_comment" || prev.Kind() == "line_comment" {
@@ -357,10 +400,8 @@ func (c *Collector) extractComments(node *sitter.Node, src *[]byte) (doc string,
 			} else {
 				comment = text
 			}
-			// 只取最近的一个
 			break
 		}
-		// 如果中间隔了非空白字符，就停止
 		if strings.TrimSpace(c.getNodeContent(prev, *src)) != "" {
 			break
 		}
@@ -371,57 +412,29 @@ func (c *Collector) extractComments(node *sitter.Node, src *[]byte) (doc string,
 
 func (c *Collector) extractInterfaceListFromNode(node *sitter.Node, src *[]byte) []string {
 	var results []string
-
-	// 根据 AST，如果子节点是 type_list，我们需要遍历 type_list 的具名子节点
 	target := node
 	if listNode := c.findNamedChildOfType(node, "type_list"); listNode != nil {
 		target = listNode
 	}
-
 	for i := 0; i < int(target.NamedChildCount()); i++ {
 		child := target.NamedChild(uint(i))
-		// 提取 type_identifier 或 generic_type
 		if strings.Contains(child.Kind(), "type") {
-			fmt.Printf("Node Kind: %s, Child Count: %d\n", target.Kind(), target.NamedChildCount())
 			results = append(results, c.getNodeContent(child, *src))
 		}
 	}
 	return results
 }
 
-func (c *Collector) extractParameterTypesOnly(node *sitter.Node, src *[]byte) string {
+func (c *Collector) extractParameterList(node *sitter.Node, src *[]byte) []string {
 	pNode := node.ChildByFieldName("parameters")
 	if pNode == nil {
-		return "()"
+		return nil
 	}
-
-	var types []string
+	var params []string
 	for i := 0; i < int(pNode.NamedChildCount()); i++ {
-		param := pNode.NamedChild(uint(i))
-		tStr := "unknown"
-
-		if param.Kind() == "spread_parameter" {
-			// 在 spread_parameter 中找第一个类型相关的节点
-			if tNode := param.ChildByFieldName("type"); tNode != nil {
-				tStr = c.getNodeContent(tNode, *src) + "..."
-			} else {
-				// 按照你的 AST：第一个命名的子节点通常是 (type_identifier)
-				for j := 0; j < int(param.NamedChildCount()); j++ {
-					child := param.NamedChild(uint(j))
-					if strings.Contains(child.Kind(), "type") {
-						tStr = c.getNodeContent(child, *src) + "..."
-						break
-					}
-				}
-			}
-		} else if tNode := param.ChildByFieldName("type"); tNode != nil {
-			tStr = c.getNodeContent(tNode, *src)
-		}
-
-		tStr = strings.Split(tStr, "<")[0]
-		types = append(types, strings.TrimSpace(tStr))
+		params = append(params, c.getNodeContent(pNode.NamedChild(uint(i)), *src))
 	}
-	return "(" + strings.Join(types, ",") + ")"
+	return params
 }
 
 func (c *Collector) extractParameterWithNames(node *sitter.Node, src *[]byte) string {
@@ -432,63 +445,14 @@ func (c *Collector) extractParameterWithNames(node *sitter.Node, src *[]byte) st
 	return c.getNodeContent(pNode, *src)
 }
 
-func (c *Collector) extractVariableName(node *sitter.Node, src *[]byte) string {
-	// 尝试直接获取 name 字段
-	if nNode := node.ChildByFieldName("name"); nNode != nil {
-		return c.getNodeContent(nNode, *src)
-	}
-	// 针对嵌套在 variable_declarator 中的情况 (spread_parameter, field_declaration)
-	if vd := c.findNamedChildOfType(node, "variable_declarator"); vd != nil {
-		if nNode := vd.ChildByFieldName("name"); nNode != nil {
-			return c.getNodeContent(nNode, *src)
-		}
-	}
-	return ""
-}
-
-func (c *Collector) extractTypeString(node *sitter.Node, src *[]byte) string {
-	// 1. 直接 field 提取
-	if tNode := node.ChildByFieldName("type"); tNode != nil {
-		return c.getNodeContent(tNode, *src)
-	}
-	// 2. 针对变长参数处理
-	if node.Kind() == "spread_parameter" {
-		for i := 0; i < int(node.NamedChildCount()); i++ {
-			child := node.NamedChild(uint(i))
-			if strings.Contains(child.Kind(), "type") {
-				return c.getNodeContent(child, *src) + "..."
-			}
-		}
-	}
-	return ""
-}
-
-// extractParameterList 提取 [Type name, Type name] 格式
-func (c *Collector) extractParameterList(node *sitter.Node, src *[]byte) []string {
-	pNode := node.ChildByFieldName("parameters")
-	if pNode == nil {
-		return nil
-	}
-	var params []string
-	for i := 0; i < int(pNode.NamedChildCount()); i++ {
-		param := pNode.NamedChild(uint(i))
-		params = append(params, c.getNodeContent(param, *src))
-	}
-	return params
-}
-
-// extractThrows 提取 throws 列表
 func (c *Collector) extractThrows(node *sitter.Node, src *[]byte) []string {
 	tNode := node.ChildByFieldName("throws")
 	if tNode == nil {
-		// 兼容性处理：有些版本不通过 Field 关联，直接查找名为 "throws" 的子节点
 		tNode = c.findNamedChildOfType(node, "throws")
 	}
 	if tNode == nil {
 		return nil
 	}
-
-	// throws 节点内容通常是 (throws (type_identifier) (type_identifier))
 	var types []string
 	for i := 0; i < int(tNode.NamedChildCount()); i++ {
 		types = append(types, c.getNodeContent(tNode.NamedChild(uint(i)), *src))
@@ -496,37 +460,19 @@ func (c *Collector) extractThrows(node *sitter.Node, src *[]byte) []string {
 	return types
 }
 
-// extractInterfaces 提取 implements 列表
-func (c *Collector) extractInterfaces(node *sitter.Node, src *[]byte) []string {
-	iNode := node.ChildByFieldName("interfaces")
-	if iNode == nil {
-		return nil
+func (c *Collector) applyUniqueQN(elem *model.CodeElement, node *sitter.Node, parentQN string, occurrences map[string]int, src *[]byte) {
+	identity := elem.Name
+	if elem.Kind == model.Method {
+		identity += c.extractParameterTypesOnly(node, src)
 	}
-	// iNode 是 (interfaces (type_list (type_identifier)))
-	var interfaces []string
-	// 深入寻找 type_list
-	listNode := iNode
-	if iNode.NamedChildCount() > 0 && iNode.NamedChild(0).Kind() == "type_list" {
-		listNode = iNode.NamedChild(0)
-	}
+	occurrences[identity]++
+	count := occurrences[identity]
 
-	for i := 0; i < int(listNode.NamedChildCount()); i++ {
-		interfaces = append(interfaces, c.getNodeContent(listNode.NamedChild(uint(i)), *src))
+	if elem.Kind == model.AnonymousClass || elem.Kind == model.Lambda || elem.Kind == model.ScopeBlock || count > 1 {
+		identity = fmt.Sprintf("%s$%d", identity, count)
 	}
-	return interfaces
+	elem.QualifiedName = c.resolver.BuildQualifiedName(parentQN, identity)
 }
-
-func (c *Collector) extractLocation(n *sitter.Node, filePath string) *model.Location {
-	return &model.Location{
-		FilePath:    filePath,
-		StartLine:   int(n.StartPosition().Row) + 1,
-		EndLine:     int(n.EndPosition().Row) + 1,
-		StartColumn: int(n.StartPosition().Column),
-		EndColumn:   int(n.EndPosition().Column),
-	}
-}
-
-// --- 辅助工具函数 ---
 
 func (c *Collector) resolveMissingName(node *sitter.Node, kind model.ElementKind, parentQN string, src *[]byte) string {
 	if nNode := node.ChildByFieldName("name"); nNode != nil {
@@ -537,6 +483,16 @@ func (c *Collector) resolveMissingName(node *sitter.Node, kind model.ElementKind
 		return parts[len(parts)-1]
 	}
 	return ""
+}
+
+func (c *Collector) extractLocation(n *sitter.Node, filePath string) *model.Location {
+	return &model.Location{
+		FilePath:    filePath,
+		StartLine:   int(n.StartPosition().Row) + 1,
+		EndLine:     int(n.EndPosition().Row) + 1,
+		StartColumn: int(n.StartPosition().Column),
+		EndColumn:   int(n.EndPosition().Column),
+	}
 }
 
 func (c *Collector) getNodeContent(n *sitter.Node, src []byte) string {
@@ -569,4 +525,11 @@ func (c *Collector) contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Collector) determineVariableKind(kindStr string) model.ElementKind {
+	if kindStr == "local_variable_declaration" {
+		return model.Variable
+	}
+	return model.Field
 }

@@ -322,7 +322,7 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 	// 验证 1: 验证方法内部定义的局部类 LocalValidator
 	t.Run("Verify Local Class", func(t *testing.T) {
 		// 根据你的 Collector 实现，局部类应该在方法 QN 下
-		qn := "com.example.base.CallbackManager.register().block$1.LocalValidator"
+		qn := "com.example.base.CallbackManager.register().LocalValidator"
 		defs := findDefinitionsByQN(fCtx, qn)
 		if len(defs) == 0 {
 			t.Fatalf("Local class LocalValidator not found at %s", qn)
@@ -346,8 +346,7 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 
 	// 验证 2: 验证变量 r
 	t.Run("Verify Variable r", func(t *testing.T) {
-		// 修正路径：register() 后面跟着 block$1
-		qn := "com.example.base.CallbackManager.register().block$1.r"
+		qn := "com.example.base.CallbackManager.register().r"
 		defs := findDefinitionsByQN(fCtx, qn)
 		if len(defs) == 0 {
 			t.Fatalf("Variable r not found at %s", qn)
@@ -362,12 +361,11 @@ func TestJavaCollector_CallbackManager(t *testing.T) {
 	// 验证 3: 验证匿名内部类及其方法 run()
 	t.Run("Verify Anonymous Inner Class and Run Method", func(t *testing.T) {
 		// 修正路径：anonymousClass$1 现在应该正确嵌套了 run()
-		anonQN := "com.example.base.CallbackManager.register().block$1.anonymousClass$1"
+		anonQN := "com.example.base.CallbackManager.register().anonymousClass$1"
 		runQN := anonQN + ".run()"
 
 		runDefs := findDefinitionsByQN(fCtx, runQN)
 		if len(runDefs) == 0 {
-			// 如果还是找不到，说明 run 直接挂在了 block$1 下，那是因为匿名类节点没能成功拦截其子节点
 			t.Fatalf("Method run() not found at expected QN: %s", runQN)
 		}
 
@@ -561,6 +559,56 @@ func TestJavaCollector_DataProcessor(t *testing.T) {
 		// 验证 Signature 是否正确包含 default
 		if !strings.HasPrefix(elem.Signature, "default void stop()") {
 			t.Errorf("Signature prefix incorrect: %s", elem.Signature)
+		}
+	})
+}
+
+func TestJavaCollector_NestedAndStaticBlocks(t *testing.T) {
+	filePath := getTestFilePath(filepath.Join("com", "example", "base", "OuterClass.java"))
+	rootNode, sourceBytes, err := getJavaParser(t).ParseFile(filePath, true, true)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	collector := java.NewJavaCollector()
+	fCtx, err := collector.CollectDefinitions(rootNode, filePath, sourceBytes)
+	if err != nil {
+		t.Fatalf("CollectDefinitions failed: %v", err)
+	}
+
+	printCodeElements(fCtx)
+
+	// 验证 1: 静态初始化块与实例块
+	t.Run("Verify Initialization Blocks", func(t *testing.T) {
+		// 静态块通常被识别为 static_initializer 节点, 我们将其命名为 $static
+		staticBlockQN := "com.example.base.OuterClass.$static$1"
+		if len(findDefinitionsByQN(fCtx, staticBlockQN)) == 0 {
+			t.Errorf("Static initializer block not found at expected QN: %s", staticBlockQN)
+		}
+	})
+
+	// 验证 2: 内部类与静态嵌套类
+	t.Run("Verify Nested Classes", func(t *testing.T) {
+		// 内部类 QN
+		innerQN := "com.example.base.OuterClass.InnerClass"
+		if len(findDefinitionsByQN(fCtx, innerQN)) == 0 {
+			t.Errorf("InnerClass not found")
+		}
+
+		// 静态嵌套类方法 QN
+		nestedMethodQN := "com.example.base.OuterClass.StaticNestedClass.run()"
+		if len(findDefinitionsByQN(fCtx, nestedMethodQN)) == 0 {
+			t.Errorf("Method run() in StaticNestedClass not found")
+		}
+	})
+
+	// 验证 3: 方法内部类 (Local Class)
+	t.Run("Verify Local Class", func(t *testing.T) {
+		// 注意层级：OuterClass -> scopeTest() -> LocalClass
+		localClassQN := "com.example.base.OuterClass.scopeTest().LocalClass"
+		defs := findDefinitionsByQN(fCtx, localClassQN)
+		if len(defs) == 0 {
+			t.Errorf("Local class inside method not found at: %s", localClassQN)
 		}
 	})
 }
